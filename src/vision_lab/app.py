@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any
 
@@ -27,6 +28,14 @@ from vision_lab.pipeline import run_job
 from vision_lab.storage import JobStore, UploadError, decode_pending, validate_upload
 
 log = logging.getLogger("vision_lab")
+
+# A job id in a path is a capability URL (anyone who has it can view that
+# job); redact it in logs, but keep the rest of the path so the route that
+# failed is still identifiable. Truncating the whole path instead (an
+# earlier version of this) was worse on both counts: "/jobs/" alone is 6
+# characters, so an 8-character truncation left only 2 hex characters of
+# the id, and made /jobs/<id> and /jobs/<id>/files/<name> log identically.
+_JOB_ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
 
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -190,9 +199,8 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.errorhandler(Exception)
     def unexpected(error: Exception) -> tuple[str, int]:
-        # A path under /jobs/<id> is a capability URL; only a short prefix of
-        # it belongs in the server log, not the full id.
-        log.exception("unhandled error while serving %s...", request.path[:8])
+        redacted_path = _JOB_ID_IN_PATH.sub(lambda m: m.group()[:8] + "...", request.path)
+        log.exception("unhandled error while serving %s", redacted_path)
         message = "Something went wrong while processing the image. Nothing was kept."
         return render_template("error.html", status=500, message=message), 500
 

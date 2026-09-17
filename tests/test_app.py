@@ -456,11 +456,13 @@ def test_a_stuck_expired_job_directory_does_not_break_other_requests(
     assert client.get("/").status_code == 200
 
 
-def test_the_500_log_truncates_the_job_id_in_the_request_path(
+def test_the_500_log_redacts_the_job_id_but_keeps_the_route_readable(
     client: FlaskClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """request.path on /jobs/<id> is a capability URL; only a short prefix
-    belongs in the server log, not the full id."""
+    """request.path on /jobs/<id> is a capability URL: the full id must not
+    reach the log. But redacting it must not blind the log to which route
+    failed: /jobs/<id> and /jobs/<id>/files/<name> must not read
+    identically, and an unrelated route's path must survive untouched."""
     location = submit(client).headers["Location"]
     match = JOB_URL.search(location)
     assert match is not None
@@ -471,10 +473,28 @@ def test_the_500_log_truncates_the_job_id_in_the_request_path(
 
     monkeypatch.setattr("vision_lab.storage.JobStore.load_result", boom)
     with caplog.at_level(logging.ERROR, logger="vision_lab"):
-        response = client.get(location)
-    assert response.status_code == 500
-    assert location[:8] in caplog.text
-    assert job_id not in caplog.text, "the full job id (a capability URL) must not reach the log"
+        page_response = client.get(location)
+    assert page_response.status_code == 500
+    page_log = caplog.text
+    caplog.clear()
+
+    def vanished(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("disk error")
+
+    monkeypatch.setattr("vision_lab.app.send_file", vanished)
+    with caplog.at_level(logging.ERROR, logger="vision_lab"):
+        file_response = client.get(f"{location}/files/original.jpg")
+    assert file_response.status_code == 500
+    file_log = caplog.text
+
+    assert job_id not in page_log, "the full job id (a capability URL) must not reach the log"
+    assert job_id not in file_log
+    redacted = f"/jobs/{job_id[:8]}..."
+    assert redacted in page_log, "the route must stay identifiable after redaction"
+    assert f"{redacted}/files/original.jpg" in file_log
+    assert page_log.splitlines()[0] != file_log.splitlines()[0], (
+        "the two routes must not log identically"
+    )
 
 
 def test_result_page_shows_the_actual_model_names_and_threshold(client: FlaskClient) -> None:
