@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 
 from waitress import serve
 
 from vision_lab.app import create_app
-from vision_lab.config import Settings
+from vision_lab.config import Settings, SettingsError
 
 
 def main() -> None:
@@ -18,7 +19,13 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings = Settings.from_env()
+    try:
+        settings = Settings.from_env()
+    except SettingsError as error:
+        # A clear, one-line message naming the offending variable, not a
+        # traceback: this runs before any request is served.
+        print(f"vision-lab: invalid configuration: {error}", file=sys.stderr)
+        raise SystemExit(2) from error
     logging.getLogger("vision_lab").info(
         "serving on http://%s:%d, data in %s", args.host, args.port, settings.data_dir
     )
