@@ -61,6 +61,7 @@ read with `(Get-Process -Id <pid>).WorkingSet64`) against a freshly started serv
 | --- | --- |
 | Unit and web suite | 134 tests in about 5 s, 98.71 % line and branch coverage |
 | Weights to download on first run (not re-measured; they are cached on this machine) | about 140 MB total (yolov5nu 5.3 MB, yolov5su 17.7 MB, DeepLabV3 42.3 MB, Faster R-CNN 74.2 MB) |
+| Docker image size (`python:3.13-slim-bookworm` base, CPU wheels), measured on the Task 8 build, 2026-09-17 | 2.08 GB |
 | First upload with every variant and YOLOv5su, models cold (weights already on disk) | 11.2 s |
 | Upload with defaults, models warm, median of 10 | 0.60 s (maximum 0.73 s) |
 | 12 uploads from 4 clients, queue of 15 s | 12 processed, none refused, no 5xx |

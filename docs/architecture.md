@@ -3,14 +3,16 @@
 ## Request flow
 
 ```
-POST /jobs  ->  params.parse_params      every field validated, all errors at once   -> 400
-            ->  storage.decode_upload    format, pixel limit, re-encode, downscale  -> 400 / 413
-            ->  inference slot           bounded wait, then give up                 -> 503 + Retry-After
-            ->  pipeline.run_job         ops + models, writes images and result.json
-            ->  303 See Other            /jobs/<id>
+POST /jobs  ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
+            ->  no image field             request.files.get("image") is empty              -> 400
+            ->  params.parse_params        every field validated, all errors at once         -> 400
+            ->  storage.decode_upload      format, pixel limit, re-encode, downscale         -> 400
+            ->  inference slot             bounded wait, then give up                        -> 503 + Retry-After, the HTML error page
+            ->  purge + pipeline.run_job   expired jobs removed, then ops and models run      -> 500, job discarded, on failure
+            ->  303 See Other              /jobs/<id>
 
-GET /jobs/<id>               reads result.json, renders; models never run on a GET
-GET /jobs/<id>/files/<name>  serves one image; id and name match strict patterns first
+GET /jobs/<id>               purges expired jobs, then reads result.json and renders; models never run on a GET
+GET /jobs/<id>/files/<name>  purges expired jobs, checks id and name against strict patterns, then serves one image
 ```
 
 ## Modules
@@ -19,9 +21,10 @@ GET /jobs/<id>/files/<name>  serves one image; id and name match strict patterns
 | --- | --- | --- |
 | `config.py` | limits and switches from environment variables | standard library |
 | `params.py` | form fields to a frozen `ProcessingParams`, or `ParamError` | standard library |
+| `imaging.py` | the shared `Image` type alias | OpenCV typing |
 | `ops.py` | classical operations as pure functions on arrays | OpenCV, NumPy |
 | `inference.py` | `Detector`, `Segmenter`, `EmotionAnalyzer` protocols, their implementations, `ModelRegistry` | torch, torchvision; ultralytics and deepface when installed |
-| `render.py` | boxes, overlays, segmentation metrics | OpenCV, NumPy |
+| `render.py` | boxes, overlays, segmentation metrics | OpenCV, NumPy, `inference.py` for the `Detection` and `FaceEmotion` types |
 | `storage.py` | upload decoding, per-job directories, expiry | Pillow, OpenCV |
 | `pipeline.py` | runs every stage for one upload, records the result | the modules above |
 | `catalog.py` | the one description of every operation | standard library |
@@ -37,15 +40,16 @@ the web layer be tested in milliseconds with fake models.
 **uv instead of Anaconda.** The original environment was a conda export tied to one Windows
 machine. `pyproject.toml` plus `uv.lock` gives the same versions on Windows, Linux and macOS from
 one command, and uv installs the Python interpreter itself. CPU-only PyTorch wheels are selected
-through an explicit index, which keeps a Linux install near 1 GB instead of several.
+through an explicit index, which avoids several GB of CUDA libraries this project never uses.
 
 **Faster R-CNN, MobileNetV3-Large 320 FPN by default, YOLO as an extra.** The coursework fetched
 YOLOv5 code from GitHub at run time through `torch.hub`, which executes unpinned remote code and
 needs a dozen undeclared dependencies. The default detector now ships with torchvision under
 BSD-3-Clause; it resizes its input so the short side is 320 px, trading small-object accuracy for
 CPU speed. YOLOv5u remains available through the pinned `ultralytics` package for anyone who
-installs the `yolo` extra; its `ModelRegistry` entries share one lock per model, because the
-underlying YOLO objects are not safe to call from two threads at once.
+installs the `yolo` extra; each YOLO detector serialises its calls with its own lock, because the
+underlying YOLO object keeps per-call predictor state and is not safe to call from two threads at
+once.
 
 **AGPL-3.0-or-later.** The optional YOLO backend is AGPL-3.0, and this code is written to work
 with it, so the whole project takes the same licence instead of arguing about boundaries. The
@@ -55,9 +59,10 @@ met by the source link in the footer of every page.
 
 **Results are files, not recomputation.** The coursework ran every model again on each page view
 and let the query string choose the file to process. A job now runs once, writes `result.json`,
-and a GET only reads it. Expired jobs are removed both when a new upload is decoded and when an
-existing job is read, and a lock keeps a purge's listing and removals atomic against a concurrent
-purge in the same process.
+and a GET only reads it. Expired jobs are purged once the inference slot for a new upload has been
+acquired (so an upload refused with 503 does not purge) and again on every request for a result or
+one of its files. A lock keeps a purge's listing and removals atomic against a concurrent purge in
+the same process.
 
 **No JavaScript.** The interface is a form and a result page. Leaving scripts out allows
 `script-src 'none'`, removes a class of bugs, and keeps the pages usable everywhere.
@@ -74,8 +79,9 @@ other form fields, so an oversized upload is refused before it is buffered, not 
 
 **DeepFace weights under the data directory.** DeepFace reads the `DEEPFACE_HOME` environment
 variable at import time and stores its weights under `<home>/.deepface/weights`. `inference.py`
-sets it to the configured weights directory before importing DeepFace, so every downloaded weight
-lands under `VISION_LAB_DATA_DIR` like the other models, instead of the user's home directory.
+sets it to the configured weights directory before importing DeepFace, unless `DEEPFACE_HOME` is
+already set, so every downloaded weight lands under `VISION_LAB_DATA_DIR` like the other models,
+instead of the user's home directory.
 
 **OpenCV below 5.** OpenCV 5 removed `cv2.CascadeClassifier`, which DeepFace still uses for its
 default face detector. The constraint is recorded in `pyproject.toml` and in the Dependabot

@@ -19,6 +19,10 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - Test suite at five levels (unit, web, models, browser, load) and continuous integration on Linux and Windows.
 - English interface, accessible markup, an Algorithms page and `docs/algorithms.md` generated from one catalogue.
 - LICENSE (AGPL-3.0-or-later), SECURITY.md, CITATION.cff, this changelog.
+- Served with waitress, with request bodies bounded to the upload limit plus 1 MiB.
+- Decompression bombs and camera MPO JPEGs are handled correctly on upload.
+- Results expire automatically a configurable time after they were created, checked both on
+  upload and on a later read.
 
 ### Changed
 
@@ -26,9 +30,6 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - Segmentation runs at full resolution with all 21 Pascal VOC classes and measures class shares on the class map.
 - Models load once per process instead of once per request; viewing a result no longer re-runs them.
 - Bootstrap is vendored; the pages contact no third party.
-- The busy response is now the same HTML error page as other failures, with a `Retry-After` header, instead of a bare status code.
-- waitress bounds the request body to the configured upload limit plus a margin, so an oversized upload is refused before it is buffered.
-- Expired results are now removed both when a new upload arrives and when an existing job is read, and a lock keeps concurrent purges from corrupting or double-deleting a result.
 
 ### Fixed
 
@@ -39,8 +40,7 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - Any validation error crashed with HTTP 500 (`url_for('index')` on a route named `home`, `flash` without a secret key).
 - Even kernel sizes, out-of-range crops and large scale factors crashed OpenCV or exhausted memory.
 - The unit tests called functions with signatures that no longer existed and could not pass.
-- Rotation used an off-by-one image centre, which is now exact against `np.rot90` for the 90 degree steps.
-- Decompression bombs were not rejected cleanly on both sides of Pillow's own size threshold, and MPO camera JPEGs (multi-picture JPEG, as produced by some phone cameras) were rejected instead of accepted.
+- Rotation used an integer centre half a pixel off true centre, on a fixed-size canvas that cut off the corners of a rotated image; rotation now uses the exact centre on a canvas that grows to fit, checked against `np.rot90` for the 90 degree steps.
 
 ### Removed
 
@@ -48,8 +48,8 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - `environment.yml` and the conda `pip freeze` in `requirements.txt` (Windows build paths, a local user name, not installable elsewhere).
 - The public gallery of every uploaded image.
 - Flask debug mode as the way to run the application.
-- The AI-generated hero image and an unused screenshot; the in-app documentation page that duplicated the README.
-- Haar-cascade face circles (the API was removed in OpenCV 5); face boxes now come from the optional emotion extra.
+- The AI-generated hero image and an unused screenshot; the in-app documentation page that repeated what a README should say.
+- Haar-cascade face circles drawn by a separate face detector alongside the object detector; face boxes now come only from the optional emotion extra.
 
 ## [0.1.0-coursework] - 2025-01-22
 
