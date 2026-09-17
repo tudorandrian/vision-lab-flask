@@ -1,7 +1,9 @@
 """Sequential and concurrent uploads against a running server; prints latency and error counts.
 
 Usage: python scripts/smoke_load.py http://127.0.0.1:8000 samples/astronaut.jpg
-Exit code 1 if any response is a 5xx other than the deliberate 503 busy signal.
+Exit code 0 on a clean run. Exit code 1 if any response is a 5xx other than the deliberate 503
+busy signal, or if no sequential upload succeeded at all. Exit code 2 if the target host is not
+local, in which case no request is made.
 Standard library only, so it runs anywhere Python does.
 """
 
@@ -11,11 +13,19 @@ import statistics
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def is_local(base: str) -> bool:
+    parts = urllib.parse.urlsplit(base)
+    return parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -52,7 +62,7 @@ def upload(base: str, image: bytes) -> tuple[int, float]:
 
 def main() -> int:
     base, image = sys.argv[1].rstrip("/"), Path(sys.argv[2]).read_bytes()
-    if not base.startswith(("http://127.0.0.1", "http://localhost")):
+    if not is_local(base):
         print("refusing to load-test a host that is not local")
         return 2
     upload(base, image)  # warm-up: loads the models

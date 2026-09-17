@@ -50,20 +50,25 @@ returns an image:
 
 ## Reference measurements
 
-Measured on 2026-09-17 with `scripts/smoke_load.py`: Windows 10, Intel CPU from 2017 with 4 cores
-and 8 threads, 16 GB of memory, no GPU, Python 3.13, torch 2.14 CPU, sample image 512 x 512 px,
-default options, `yolo` extra installed.
+Measured on 2026-09-17: Windows 10, Intel CPU from 2017 with 4 cores and 8 threads, 16 GB of
+memory, no GPU, Python 3.13, torch 2.14 CPU, sample image 512 x 512 px, default options unless
+stated, `yolo` extra installed, weights already downloaded from a previous run. The latency and
+queue rows come from `scripts/smoke_load.py`; the cold-upload and memory rows come from `curl` and
+the working set of the server's own python.exe process (found with `netstat -ano` for the port,
+read with `(Get-Process -Id <pid>).WorkingSet64`) against a freshly started server.
 
 | Measure | Value |
 | --- | --- |
 | Unit and web suite | 134 tests in about 5 s, 98.71 % line and branch coverage |
-| First upload, including weight download | about 25 s |
-| Upload with every variant and YOLOv5su, models cold | 10.0 s |
+| Weights to download on first run (not re-measured; they are cached on this machine) | about 140 MB total (yolov5nu 5.3 MB, yolov5su 17.7 MB, DeepLabV3 42.3 MB, Faster R-CNN 74.2 MB) |
+| First upload with every variant and YOLOv5su, models cold (weights already on disk) | 11.2 s |
 | Upload with defaults, models warm, median of 10 | 0.60 s (maximum 0.73 s) |
 | 12 uploads from 4 clients, queue of 15 s | 12 processed, none refused, no 5xx |
 | The same with `VISION_LAB_QUEUE_SECONDS=0` | 1 processed, 11 refused with 503 and `Retry-After`, no 5xx, process stays up |
-| Resident memory with Faster R-CNN and DeepLabV3 loaded | about 580 MB |
-| Resident memory with both YOLO variants loaded as well | about 700 MB |
+| Resident memory before any model is loaded | about 58 MB |
+| Resident memory with Faster R-CNN and DeepLabV3 loaded (one default upload) | about 498 MB |
+| Resident memory with YOLOv5nu also loaded | about 551 MB |
+| Resident memory with YOLOv5su also loaded | about 655 MB |
 
 Repeat the load row after any change to `pipeline.py` or `inference.py` and update the table if a
 value moves by more than a quarter.
