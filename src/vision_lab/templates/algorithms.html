@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Algorithms{% endblock %}
+{% block content %}
+<h1 class="mb-4">Algorithms and models</h1>
+{% for group in catalog %}
+<section class="mb-5" aria-labelledby="group-{{ group.key }}">
+	<h2 class="h4" id="group-{{ group.key }}">{{ group.title }}</h2>
+	<dl>
+	{% for entry in group.entries %}
+		<dt>{{ entry.title }}</dt>
+		<dd>{{ entry.summary }}<br><span class="text-body-secondary small">{{ entry.reference }}</span></dd>
+	{% endfor %}
+	</dl>
+</section>
+{% endfor %}
+{% endblock %}

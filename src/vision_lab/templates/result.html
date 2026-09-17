@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Results{% endblock %}
+
+{% macro picture(name, alt) %}
+<img class="result-image" loading="lazy" src="{{ url_for('job_file', job_id=job_id, name=name) }}" alt="{{ alt }}">
+{% endmacro %}
+
+{% block content %}
+<h1 class="mb-2">Results</h1>
+<p class="text-body-secondary">{{ result.size.width }} x {{ result.size.height }} px, processed in {{ result.seconds }} s.
+	This page and its images are deleted {{ ttl }} minutes after the upload; anyone with this address can view it until then.</p>
+
+<section class="row g-4 mb-5" aria-labelledby="h-transform">
+	<h2 class="h4" id="h-transform">Original and geometric transform</h2>
+	<div class="col-md-6">{{ picture("original.jpg", "Uploaded image") }}</div>
+	<div class="col-md-6">{{ picture("transformed.jpg", "Image after rotation, scaling, cropping and flipping") }}</div>
+</section>
+
+<section class="row g-4 mb-5" aria-labelledby="h-detection">
+	<h2 class="h4" id="h-detection">Object detection: {{ result.detector }}</h2>
+	<div class="col-md-8">{{ picture("detections.jpg", "Image with a labelled box around every detected object") }}</div>
+	<div class="col-md-4">
+		{% if result.detections %}
+		<table class="table table-sm">
+			<caption>Detections above a confidence of 0.5</caption>
+			<thead><tr><th scope="col">Label</th><th scope="col" class="text-end">Confidence</th></tr></thead>
+			<tbody>{% for item in result.detections %}<tr><td>{{ item.label }}</td><td class="text-end">{{ "%.2f" | format(item.confidence) }}</td></tr>{% endfor %}</tbody>
+		</table>
+		{% else %}<p>No object was detected above a confidence of 0.5.</p>{% endif %}
+	</div>
+</section>
+
+<section class="row g-4 mb-5" aria-labelledby="h-segmentation">
+	<h2 class="h4" id="h-segmentation">Semantic segmentation: DeepLabV3</h2>
+	<div class="col-md-8">{{ picture("segmentation.jpg", "Image with each segmented class tinted in its own colour") }}</div>
+	<div class="col-md-4">
+		<table class="table table-sm">
+			<caption>Share of the image per class</caption>
+			<thead><tr><th scope="col">Class</th><th scope="col" class="text-end">Pixels</th><th scope="col" class="text-end">Share</th></tr></thead>
+			<tbody>{% for item in result.segments %}<tr><td>{{ item.label }}</td><td class="text-end">{{ "{:,}".format(item.pixels) }}</td><td class="text-end">{{ "%.2f" | format(item.percentage) }} %</td></tr>{% endfor %}</tbody>
+		</table>
+	</div>
+</section>
+
+{% if result.faces is not none %}
+<section class="row g-4 mb-5" aria-labelledby="h-faces">
+	<h2 class="h4" id="h-faces">Facial expression estimate</h2>
+	<div class="col-md-8">{{ picture("faces.jpg", "Image with a box around every detected face") }}</div>
+	<div class="col-md-4">
+		<p class="small text-body-secondary">A statistical guess about a visible expression. It says nothing reliable about what a person feels.</p>
+		{% for face in result.faces %}
+		<p class="mb-1 fw-semibold">Face {{ loop.index }}: {{ face.dominant }}</p>
+		<ul class="small">{% for name, score in face.scores.items() %}<li>{{ name }}: {{ "%.2f" | format(score) }} %</li>{% endfor %}</ul>
+		{% else %}<p>No face was found.</p>{% endfor %}
+	</div>
+</section>
+{% endif %}
+
+{% for section in result.sections %}
+<section class="mb-5" aria-labelledby="h-{{ section.key }}">
+	<h2 class="h4" id="h-{{ section.key }}">{{ section.title }}</h2>
+	<div class="row row-cols-1 row-cols-md-2 g-4">
+		{% for item in section["items"] %}
+		<div class="col">
+			<div class="card h-100">
+				{{ picture(item.file, item.title) }}
+				<div class="card-body">
+					<h3 class="card-title h6">{{ item.title }}</h3>
+					<p class="card-text small">{{ item.summary }}</p>
+				</div>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+</section>
+{% endfor %}
+
+<a class="btn btn-primary" href="{{ url_for('home') }}">Process another image</a>
+{% endblock %}
