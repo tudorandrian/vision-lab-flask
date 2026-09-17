@@ -25,11 +25,23 @@ Status: version 1.0.0, beta, maintained as a portfolio project.
 | Facial expression estimate | DeepFace (optional extra, disabled by default) |
 
 Every operation is described, with its reference, in [docs/algorithms.md](docs/algorithms.md)
-and in the application under Algorithms. Both are generated from one table in the code.
+and in the application under Algorithms. Both are generated from one table in the code. Each
+pretrained model's weights, training data and known limits are in [docs/models.md](docs/models.md).
 
 ## Run it
 
 Three independent ways. Pick one; none of them needs Anaconda.
+
+You need [Git](https://git-scm.com/downloads), and for route A, [uv](https://docs.astral.sh/uv/):
+install it with `winget install --id=astral-sh.uv -e` (Windows), `brew install uv` (macOS), or
+`curl -LsSf https://astral.sh/uv/install.sh | sh` (Linux), then open a new terminal. Route B needs
+Docker Desktop (Windows, macOS) or Docker Engine with the Compose plugin (Linux). Route C needs
+Python 3.12 or 3.13 already installed.
+
+Supported platforms: Windows 10 or 11 on x64, Linux on x86_64 or aarch64 with glibc 2.28 or newer
+(Ubuntu 20.04, Debian 10 and later), and macOS 14 or newer on Apple silicon. Current PyTorch
+releases publish no wheels for Intel Macs, macOS 13 or older, or a glibc older than 2.28. Allow
+about 1.2 GB of disk space for `.venv` plus about 120 MB for the model weights.
 
 ### A. With uv (recommended)
 
@@ -45,7 +57,8 @@ uv run vision-lab
 
 Open <http://127.0.0.1:8000>. The first upload downloads about 120 MB of model weights (Faster
 R-CNN and DeepLabV3) into `instance/weights`, about 23 MB more with the `yolo` extra installed;
-later runs work offline.
+later runs work offline. Stop the server with Ctrl+C. If port 8000 is already taken, pass
+`--host`/`--port`, for example `uv run vision-lab --port 8010`.
 
 ### B. With Docker
 
@@ -54,7 +67,8 @@ docker compose up --build
 ```
 
 Open <http://127.0.0.1:8000>. Weights and results live in the `vision-lab-data` volume. The
-built image measures 2.08 GB.
+built image measures 2.08 GB. Stop with Ctrl+C, or `docker compose down` from another terminal;
+`docker compose down -v` also deletes the volume with the weights and results.
 
 ### C. With plain pip
 
@@ -72,7 +86,10 @@ This route resolves dependencies afresh instead of using `uv.lock`.
 
 ### Optional extras
 
-Each extra is independent of the other and of the base install.
+Each extra is optional and can be combined with the other. `uv sync` installs exactly the extras
+you name and removes any it does not find, so running `uv sync --extra emotion` after
+`uv sync --extra yolo` removes `yolo` again; to keep both, combine them in one command:
+`uv sync --extra yolo --extra emotion`.
 
 | Extra | Adds | Install | Notes |
 | --- | --- | --- | --- |
@@ -93,19 +110,38 @@ Environment variables, all optional.
 | `VISION_LAB_MAX_CONCURRENT_JOBS` | `1` | inferences running at the same time |
 | `VISION_LAB_QUEUE_SECONDS` | `15` | how long an upload waits for a free slot before HTTP 503 |
 | `VISION_LAB_ENABLE_EMOTION` | `0` | enables the `emotion` extra when it is installed |
+| `VISION_LAB_SOURCE_URL` | this repository | the link in the footer of every page; point it at your own fork if you modify and deploy the application (see Licences and credits) |
+
+Set a variable for one run with `VISION_LAB_MAX_SIDE=1024 uv run vision-lab` (bash, macOS or
+Linux), or `$env:VISION_LAB_MAX_SIDE = "1024"; uv run vision-lab` (PowerShell). For Docker, add it
+under `environment:` in `compose.yaml`. `VISION_LAB_DATA_DIR` is relative to the directory you
+start the server from.
+
+## Troubleshooting
+
+- `uv: command not found` after installing uv: open a new terminal so the updated PATH is read.
+- `ImportError: libGL.so.1` on a minimal Linux or WSL install: `sudo apt install libgl1 libglib2.0-0`.
+- The first upload takes a while: the model weights are downloading (about 120 MB); the log shows
+  the progress. Later uploads reuse the cached weights and are fast.
+- `address already in use`: another program is using port 8000; start with `--port 8010`.
+- No internet access when a model is used for the first time: each detector or segmenter needs
+  network access once, to download its weights; without it, the upload fails and the server log
+  names the model. Copy an existing `instance/weights` directory (or set `VISION_LAB_DATA_DIR` to
+  one) to reuse weights downloaded elsewhere.
 
 ## How it is tested
 
 | Level | What it proves | Command |
 | --- | --- | --- |
-| Static | style, types, common security mistakes, known vulnerable dependencies | `uv run ruff check . && uv run mypy && uv run bandit -q -r src && uv run pip-audit --skip-editable` |
-| Unit | each operation against synthetic images with exact numeric expectations | `uv run pytest` |
-| Web | status codes, headers, validation, path traversal, privacy, failure and overload behaviour, with fake models | `uv run pytest` |
+| Static | style, formatting, types, common security mistakes, no em dash, the algorithms page matches the code, known vulnerable dependencies | `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run bandit -q -r src && uv run python scripts/check_text.py && uv run python scripts/gen_algorithms_doc.py --check && uv run pip-audit --skip-editable` |
+| Unit | each operation against synthetic images with exact numeric expectations | `uv run pytest --cov` |
+| Web | status codes, headers, validation, path traversal, privacy, failure and overload behaviour, with fake models | `uv run pytest --cov` |
 | Models | real weights find the person in the sample image | `uv run pytest -m models` |
 | Browser | the upload journey in Chromium, no console errors, no third-party requests, no horizontal scrolling on a phone | `uv run playwright install chromium && uv run pytest -m e2e` |
 | Load | latency and error counts under sequential and concurrent uploads | `uv run python scripts/smoke_load.py http://127.0.0.1:8000 samples/astronaut.jpg` |
 
-The fast suite (unit and web) is 134 tests at 98.71 % line and branch coverage. Method, measured
+The fast suite (unit and web) is 152 tests at 99.09 % line and branch coverage; that figure comes
+from `uv run pytest --cov`, since plain `uv run pytest` prints no coverage number. Method, measured
 numbers and known limits are in [docs/testing.md](docs/testing.md). The design is described in
 [docs/architecture.md](docs/architecture.md).
 
