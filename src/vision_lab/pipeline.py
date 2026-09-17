@@ -12,7 +12,7 @@ from typing import Any
 
 from vision_lab import catalog, ops, render
 from vision_lab.imaging import Image
-from vision_lab.inference import ModelRegistry
+from vision_lab.inference import DEFAULT_SCORE_THRESHOLD, ModelRegistry
 from vision_lab.params import (
     COLOR_SPACES,
     EDGE_ALGORITHMS,
@@ -122,9 +122,11 @@ def run_job(
 
     result: dict[str, Any] = {
         "detector": catalog.group("models").get(params.detector).title,
+        "score_threshold": DEFAULT_SCORE_THRESHOLD,
         "detections": [
             {"label": item.label, "confidence": round(item.confidence, 2)} for item in detections
         ],
+        "segmenter": catalog.group("models").get("deeplabv3").title,
         "segments": render.segmentation_metrics(class_map, class_names),
         "faces": faces,
         "sections": sections,

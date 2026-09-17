@@ -44,7 +44,7 @@ CATALOG: tuple[Group, ...] = (
                 "LAB",
                 "CIE L*a*b*",
                 "Lightness plus two opponent colour axes, designed so that equal distances are roughly equal perceived differences.",
-                "CIE (1976). Colorimetry, publication 15.",
+                "CIE (2004). Colorimetry, 3rd edition. Publication 15:2004.",
             ),
             Entry(
                 "GRAY",
@@ -169,8 +169,10 @@ CATALOG: tuple[Group, ...] = (
         (
             Entry(
                 "fasterrcnn",
-                "Faster R-CNN, MobileNetV3-Large FPN",
-                "Two-stage object detector trained on COCO (91 categories). torchvision weights, BSD-3-Clause.",
+                "Faster R-CNN, MobileNetV3-Large 320 FPN",
+                "Two-stage object detector trained on COCO (91 categories). Images are resized so "
+                "the short side is 320 px internally, trading small-object accuracy for CPU speed. "
+                "torchvision weights, BSD-3-Clause.",
                 "Ren et al. (2015). Faster R-CNN. NeurIPS. Howard et al. (2019). Searching for MobileNetV3. ICCV.",
             ),
             Entry(

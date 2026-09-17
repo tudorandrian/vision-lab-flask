@@ -22,16 +22,16 @@
 	<div class="col-md-4">
 		{% if result.detections %}
 		<table class="table table-sm">
-			<caption>Detections above a confidence of 0.5</caption>
+			<caption>Detections above a confidence of {{ "%.2f" | format(result.score_threshold) }}</caption>
 			<thead><tr><th scope="col">Label</th><th scope="col" class="text-end">Confidence</th></tr></thead>
 			<tbody>{% for item in result.detections %}<tr><td>{{ item.label }}</td><td class="text-end">{{ "%.2f" | format(item.confidence) }}</td></tr>{% endfor %}</tbody>
 		</table>
-		{% else %}<p>No object was detected above a confidence of 0.5.</p>{% endif %}
+		{% else %}<p>No object was detected above a confidence of {{ "%.2f" | format(result.score_threshold) }}.</p>{% endif %}
 	</div>
 </section>
 
 <section class="row g-4 mb-5" aria-labelledby="h-segmentation">
-	<h2 class="h4" id="h-segmentation">Semantic segmentation: DeepLabV3</h2>
+	<h2 class="h4" id="h-segmentation">Semantic segmentation: {{ result.segmenter }}</h2>
 	<div class="col-md-8">{{ picture("segmentation.jpg", "Image with each segmented class tinted in its own colour") }}</div>
 	<div class="col-md-4">
 		<table class="table table-sm">

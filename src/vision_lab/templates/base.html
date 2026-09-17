@@ -14,8 +14,8 @@
 	<a href="{{ url_for('home') }}" class="me-auto fs-4 link-body-emphasis text-decoration-none">Vision Lab</a>
 	<nav aria-label="Main">
 		<ul class="nav nav-pills">
-			<li class="nav-item"><a class="nav-link{% if request.endpoint == 'home' %} active{% endif %}" href="{{ url_for('home') }}">Process an image</a></li>
-			<li class="nav-item"><a class="nav-link{% if request.endpoint == 'algorithms' %} active{% endif %}" href="{{ url_for('algorithms') }}">Algorithms</a></li>
+			<li class="nav-item"><a class="nav-link{% if request.endpoint == 'home' %} active{% endif %}" href="{{ url_for('home') }}"{% if request.endpoint == 'home' %} aria-current="page"{% endif %}>Process an image</a></li>
+			<li class="nav-item"><a class="nav-link{% if request.endpoint == 'algorithms' %} active{% endif %}" href="{{ url_for('algorithms') }}"{% if request.endpoint == 'algorithms' %} aria-current="page"{% endif %}>Algorithms</a></li>
 		</ul>
 	</nav>
 </header>

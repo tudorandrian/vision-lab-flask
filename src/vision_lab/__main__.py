@@ -24,7 +24,20 @@ def main() -> None:
     )
     # One inference runs at a time (see Settings.max_concurrent_jobs); the extra
     # threads keep pages, images and the busy response fast while it does.
-    serve(create_app(settings), host=args.host, port=args.port, threads=8, ident="vision-lab")
+    #
+    # waitress defaults max_request_body_size to 1 GB and buffers the whole body
+    # (spilling to a temp file) before Flask's MAX_CONTENT_LENGTH can answer 413,
+    # so an oversized upload would otherwise be written to disk first. Bounding
+    # it here at the upload limit plus a small margin (multipart framing and the
+    # other form fields) makes waitress itself refuse it, cheaply.
+    serve(
+        create_app(settings),
+        host=args.host,
+        port=args.port,
+        threads=8,
+        ident="vision-lab",
+        max_request_body_size=settings.max_upload_bytes + 1024 * 1024,
+    )
 
 
 if __name__ == "__main__":

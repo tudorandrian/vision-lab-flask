@@ -4,23 +4,28 @@
 {% macro select(name, label, group_key, values) %}
 <div class="col-md-4">
 	<label class="form-label" for="{{ name }}">{{ label }}</label>
-	<select class="form-select{% if errors.get(name) %} is-invalid{% endif %}" name="{{ name }}" id="{{ name }}">
+	<select class="form-select{% if errors.get(name) %} is-invalid{% endif %}" name="{{ name }}" id="{{ name }}"
+	        {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}>
 		{% for value in values %}
 		<option value="{{ value }}"{% if request.form.get(name) == value %} selected{% endif %}>{{ catalog.group(group_key).get(value).title }}</option>
 		{% endfor %}
 	</select>
-	{% if errors.get(name) %}<div class="invalid-feedback">{{ errors[name] }}</div>{% endif %}
+	{% if errors.get(name) %}<div class="invalid-feedback" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}
 </div>
 {% endmacro %}
 
 {% macro number(name, label, default, minimum, maximum, step=1, hint=none) %}
 <div class="col-md-4">
 	<label class="form-label" for="{{ name }}">{{ label }}</label>
+	{% set described = [] %}
+	{% if hint %}{% set _ = described.append(name ~ "-hint") %}{% endif %}
+	{% if errors.get(name) %}{% set _ = described.append(name ~ "-error") %}{% endif %}
 	<input class="form-control{% if errors.get(name) %} is-invalid{% endif %}" type="number" name="{{ name }}" id="{{ name }}"
 	       value="{{ request.form.get(name, default) }}" min="{{ minimum }}" max="{{ maximum }}" step="{{ step }}"
-	       {% if hint %}aria-describedby="{{ name }}-hint"{% endif %}>
+	       {% if errors.get(name) %}aria-invalid="true"{% endif %}
+	       {% if described %}aria-describedby="{{ described | join(' ') }}"{% endif %}>
 	{% if hint %}<div class="form-text" id="{{ name }}-hint">{{ hint }}</div>{% endif %}
-	{% if errors.get(name) %}<div class="invalid-feedback">{{ errors[name] }}</div>{% endif %}
+	{% if errors.get(name) %}<div class="invalid-feedback" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}
 </div>
 {% endmacro %}
 
@@ -47,10 +52,12 @@
 		<div class="col-md-8">
 			<label class="form-label" for="image">Image</label>
 			<input class="form-control{% if errors.get('image') %} is-invalid{% endif %}" type="file" name="image" id="image"
-			       accept="image/jpeg,image/png,image/webp,image/bmp" required aria-describedby="image-hint">
+			       accept="image/jpeg,image/png,image/webp,image/bmp" required
+			       {% if errors.get('image') %}aria-invalid="true" aria-describedby="image-hint image-error"{% else %}aria-describedby="image-hint"{% endif %}>
 			<div class="form-text" id="image-hint">JPEG, PNG, WebP or BMP, up to {{ limits.max_upload_bytes // 1048576 }} MB.
 				Larger images are reduced to {{ limits.max_side }} px on the long side. Metadata is discarded and the
 				results are deleted after {{ limits.job_ttl_minutes }} minutes.</div>
+			{% if errors.get('image') %}<div class="invalid-feedback" id="image-error">{{ errors['image'] }}</div>{% endif %}
 		</div>
 		{{ select("detector", "Object detector", "models", detectors) }}
 		<div class="col-12">

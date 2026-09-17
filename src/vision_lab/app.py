@@ -6,7 +6,17 @@ import logging
 import threading
 from typing import Any
 
-from flask import Flask, Response, abort, redirect, render_template, request, send_file, url_for
+from flask import (
+    Flask,
+    Response,
+    abort,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 from werkzeug.exceptions import HTTPException
 
 from vision_lab import __version__, catalog, params
@@ -95,7 +105,12 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         # Wait briefly for the inference slot, then give up: a bounded queue keeps
         # memory and response times predictable however many uploads arrive at once.
         if not slots.acquire(timeout=settings.queue_seconds):
-            response = Response("The server is busy with another image. Try again shortly.", 503)
+            page = render_template(
+                "error.html",
+                status=503,
+                message="The server is busy processing another image. Please try again shortly.",
+            )
+            response = make_response(page, 503)
             response.headers["Retry-After"] = "10"
             return response
         try:
@@ -112,6 +127,9 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.get("/jobs/<job_id>")
     def show_job(job_id: str) -> str:
+        # A job past its TTL must read back as gone even if nobody has uploaded
+        # since, so this cheap directory scan runs on every read too.
+        store.purge_expired()
         try:
             result = store.load_result(job_id)
         except KeyError:
@@ -122,6 +140,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.get("/jobs/<job_id>/files/<name>")
     def job_file(job_id: str, name: str) -> Response:
+        store.purge_expired()
         try:
             path = store.file_path(job_id, name)
         except KeyError:
@@ -133,7 +152,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         return response
 
     @app.errorhandler(HTTPException)
-    def http_error(error: HTTPException) -> tuple[str, int]:
+    def http_error(error: HTTPException) -> Response:
         status = error.code or 500
         messages = {
             404: "That page or result does not exist. Results are deleted after a while.",
@@ -141,7 +160,14 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             413: f"The upload is larger than {settings.max_upload_bytes // (1024 * 1024)} MB.",
         }
         message = messages.get(status, error.description or "The request could not be handled.")
-        return render_template("error.html", status=status, message=message), status
+        page = render_template("error.html", status=status, message=message)
+        response = make_response(page, status)
+        # Werkzeug attaches Allow to its own 405 response; carry it over so a
+        # client (or a test) can still see which methods are permitted.
+        allow = error.get_response().headers.get("Allow")
+        if allow:
+            response.headers["Allow"] = allow
+        return response
 
     @app.errorhandler(Exception)
     def unexpected(error: Exception) -> tuple[str, int]:

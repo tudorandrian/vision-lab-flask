@@ -133,8 +133,11 @@ def test_oversized_upload_gives_413(client: FlaskClient) -> None:
 
 
 def test_user_input_is_escaped(client: FlaskClient) -> None:
-    html = submit(client, flip="<script>alert(1)</script>").get_data(as_text=True)
+    response = submit(client, kernel_size="<script>alert(1)</script>")
+    assert response.status_code == 400
+    html = response.get_data(as_text=True)
     assert "<script>" not in html
+    assert "&lt;script&gt;" in html
 
 
 @pytest.mark.parametrize(
@@ -165,7 +168,9 @@ def test_there_is_no_listing_of_other_peoples_jobs(client: FlaskClient) -> None:
 
 
 def test_wrong_method_is_405(client: FlaskClient) -> None:
-    assert client.post("/").status_code == 405
+    response = client.post("/")
+    assert response.status_code == 405
+    assert "Allow" in response.headers
 
 
 def test_security_headers_on_every_response(client: FlaskClient) -> None:
@@ -215,6 +220,9 @@ def test_second_concurrent_job_gets_503_with_retry_after(settings: Settings) -> 
     release.set()
     worker.join(timeout=10)
     assert (busy.status_code, busy.headers["Retry-After"]) == (503, "10")
+    busy_html = busy.get_data(as_text=True)
+    assert "busy" in busy_html.lower()
+    assert "Traceback" not in busy_html
     assert first == [303]
     assert submit(flask_app.test_client()).status_code == 303, "the slot is released afterwards"
 
@@ -240,3 +248,23 @@ def test_expired_jobs_are_purged_on_the_next_upload(
     submit(client)
     assert client.get(old.headers["Location"]).status_code == 404
     assert not job_dir.exists()
+
+
+def test_expired_results_are_404_without_a_new_upload(
+    client: FlaskClient, settings: Settings
+) -> None:
+    old = submit(client)
+    location = old.headers["Location"]
+    job_dir = settings.jobs_dir / job_id_of(old)
+    past = time.time() - 2 * 3600
+    os.utime(job_dir, (past, past))
+    assert client.get(location).status_code == 404
+    assert client.get(f"{location}/files/original.jpg").status_code == 404
+    assert not job_dir.exists()
+
+
+def test_result_page_shows_the_actual_model_names_and_threshold(client: FlaskClient) -> None:
+    html = client.get(submit(client).headers["Location"]).get_data(as_text=True)
+    assert "Faster R-CNN, MobileNetV3-Large 320 FPN" in html
+    assert "DeepLabV3, MobileNetV3-Large" in html
+    assert "0.50" in html
