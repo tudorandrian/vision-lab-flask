@@ -50,7 +50,7 @@ Edit the catalogue, not this file. The same text appears in the app under Algori
 
 | Name | What it does | Reference |
 | --- | --- | --- |
-| Faster R-CNN, MobileNetV3-Large 320 FPN | Two-stage object detector trained on COCO (91 categories). Images are resized so the short side is 320 px internally, trading small-object accuracy for CPU speed. torchvision weights, BSD-3-Clause. | Ren et al. (2015). Faster R-CNN. NeurIPS. Howard et al. (2019). Searching for MobileNetV3. ICCV. |
+| Faster R-CNN, MobileNetV3-Large 320 FPN | Two-stage object detector trained on COCO (80 object classes; torchvision's label list has 91 entries, including unused placeholders and background). Images are resized so the short side is 320 px internally, trading small-object accuracy for CPU speed. torchvision weights, BSD-3-Clause. | Ren et al. (2015). Faster R-CNN. NeurIPS. Howard et al. (2019). Searching for MobileNetV3. ICCV. |
 | YOLOv5nu | Single-stage, anchor-free detector, nano size. Optional extra, Ultralytics weights under AGPL-3.0. | Jocher, G. et al. Ultralytics YOLOv5. |
 | YOLOv5su | Single-stage, anchor-free detector, small size. Optional extra, Ultralytics weights under AGPL-3.0. | Jocher, G. et al. Ultralytics YOLOv5. |
 | DeepLabV3, MobileNetV3-Large | Semantic segmentation with atrous spatial pyramid pooling over the 21 Pascal VOC classes. | Chen et al. (2017). Rethinking atrous convolution for semantic image segmentation. |

@@ -34,8 +34,9 @@ returns an image:
 
 - Validation: even kernels, NaN and infinite factors, unknown choices, markup in fields: HTTP 400,
   every error listed, nothing written to disk.
-- Uploads: empty files, executables, SVG, PDF, GIF, truncated JPEG, 4-megapixel PNG over the pixel
-  limit: HTTP 400. Oversized body: HTTP 413.
+- Uploads: rejected by `decode_upload`, which the web layer turns into HTTP 400 (web tests cover
+  empty files, executables and SVG; PDF, GIF, truncated JPEG and an oversized PNG over the pixel
+  limit are covered at the `decode_upload` level in `test_storage.py`). Oversized body: HTTP 413.
 - Privacy: the stored original has no EXIF data; the client file name appears nowhere on disk;
   `/jobs`, `/results` and `/uploads/` list nothing; `result.json` is not served.
 - Traversal: encoded and plain `..` in identifiers and file names: HTTP 404.
@@ -55,13 +56,15 @@ memory, no GPU, Python 3.13, torch 2.14 CPU, sample image 512 x 512 px, default 
 stated, `yolo` extra installed, weights already downloaded from a previous run. The latency and
 queue rows come from `scripts/smoke_load.py`; the cold-upload and memory rows come from `curl` and
 the working set of the server's own python.exe process (found with `netstat -ano` for the port,
-read with `(Get-Process -Id <pid>).WorkingSet64`) against a freshly started server.
+read with `(Get-Process -Id <pid>).WorkingSet64`) against a freshly started server. The Docker
+image size is a separate measurement, taken from the built image itself rather than this Windows
+hardware; see that row for its own date and base image.
 
 | Measure | Value |
 | --- | --- |
 | Unit and web suite | 134 tests in about 5 s, 98.71 % line and branch coverage |
 | Weights to download on first run (not re-measured; they are cached on this machine) | about 140 MB total (yolov5nu 5.3 MB, yolov5su 17.7 MB, DeepLabV3 42.3 MB, Faster R-CNN 74.2 MB) |
-| Docker image size (`python:3.13-slim-bookworm` base, CPU wheels), measured on the Task 8 build, 2026-09-17 | 2.08 GB |
+| Docker image size (`python:3.13-slim-bookworm` base, CPU wheels, no extras), built 2026-09-17 | 2.08 GB |
 | First upload with every variant and YOLOv5su, models cold (weights already on disk) | 11.2 s |
 | Upload with defaults, models warm, median of 10 | 0.60 s (maximum 0.73 s) |
 | 12 uploads from 4 clients, queue of 15 s | 12 processed, none refused, no 5xx |

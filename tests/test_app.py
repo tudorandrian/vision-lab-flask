@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import io
 import os
 import re
+import shutil
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -17,7 +20,6 @@ from PIL import Image as PilImage
 from tests.conftest import FakeDetector, FakeRegistry, png_bytes
 from vision_lab.app import create_app
 from vision_lab.config import Settings
-from vision_lab.storage import JobStore
 
 JOB_URL = re.compile(r"/jobs/([0-9a-f]{32})$")
 IMAGE_SRC = re.compile(r'src="(/jobs/[^"]+)"')
@@ -278,26 +280,33 @@ def test_expired_results_are_404_without_a_new_upload(
     assert not job_dir.exists()
 
 
-def test_old_results_without_segmenter_or_threshold_still_render(
-    client: FlaskClient, settings: Settings
+def test_a_stuck_expired_job_directory_does_not_break_other_requests(
+    client: FlaskClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A result.json written before this branch's fix lacks the two new keys."""
-    store = JobStore(settings.jobs_dir, settings.job_ttl_minutes)
-    job_id = store.create()
-    store.save_result(
-        job_id,
-        {
-            "detector": "Faster R-CNN, MobileNetV3-Large 320 FPN",
-            "detections": [{"label": "person", "confidence": 0.91}],
-            "segments": [],
-            "faces": None,
-            "sections": [],
-            "size": {"width": 64, "height": 48},
-            "seconds": 0.1,
-        },
-    )
-    response = client.get(f"/jobs/{job_id}")
-    assert response.status_code == 200
+    """One expired directory rmtree cannot remove must not turn every request into a 500.
+
+    A held file handle (an antivirus or indexer on Windows, EBUSY/EROFS on Linux) or a
+    PermissionError from another process mid-delete must be swallowed for that one directory;
+    a fresh upload, and reading its page, must both still succeed.
+    """
+    old = submit(client)
+    stuck_id = job_id_of(old)
+    past = time.time() - 2 * 3600
+    os.utime(settings.jobs_dir / stuck_id, (past, past))
+
+    real_rmtree = shutil.rmtree
+
+    def flaky_rmtree(path: object, *args: object, **kwargs: object) -> None:
+        if Path(str(path)).name == stuck_id:
+            raise OSError(errno.ENOTEMPTY, "directory not empty")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("vision_lab.storage.shutil.rmtree", flaky_rmtree)
+
+    fresh = submit(client)
+    assert fresh.status_code == 303
+    assert client.get(fresh.headers["Location"]).status_code == 200
+    assert client.get("/").status_code == 200
 
 
 def test_result_page_shows_the_actual_model_names_and_threshold(client: FlaskClient) -> None:

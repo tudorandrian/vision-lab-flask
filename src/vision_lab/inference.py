@@ -161,7 +161,6 @@ class DeepFaceEmotionAnalyzer:
     """DeepFace emotion model. Installed only with the 'emotion' extra, off by default."""
 
     def __init__(self, weights_dir: Path) -> None:
-        self._weights_dir = weights_dir
         # DeepFace reads DEEPFACE_HOME at import time and stores weights under
         # <home>/.deepface/weights, so this must be set before the import below.
         os.environ.setdefault("DEEPFACE_HOME", str(weights_dir))

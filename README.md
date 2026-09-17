@@ -114,8 +114,9 @@ numbers and known limits are in [docs/testing.md](docs/testing.md). The design i
 - Uploads are decoded, re-encoded without metadata (no GPS position, no device data) and stored
   under a random UUID (122 random bits). The name of the uploaded file is never used.
 - There is no gallery and no listing. A result can be opened only by someone who has its address.
-  Results older than the configured time are deleted at the next upload or the next request for
-  that result; nothing deletes them while the server is idle.
+  Deletion is lazy and based on the age of the job directory (the end of processing), not a timer:
+  results older than the configured time are removed at the next accepted upload or the next
+  request for any result or image; nothing deletes them while the server is idle.
 - The pages load no third-party resources and run no JavaScript, and they set a strict
   Content-Security-Policy.
 - Model weights are downloaded from their publishers on first use and are not part of this repository.

@@ -16,7 +16,7 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - Input validation for every form field, with all errors reported at once.
 - Private per-job storage under random identifiers, automatic deletion, metadata removal.
 - Strict security headers, generic error pages, a bounded inference queue.
-- Test suite at five levels (unit, web, models, browser, load) and continuous integration on Linux and Windows.
+- Test suite at several levels (static analysis, unit, web, models, browser, container, load) and continuous integration on Linux and Windows.
 - English interface, accessible markup, an Algorithms page and `docs/algorithms.md` generated from one catalogue.
 - LICENSE (AGPL-3.0-or-later), SECURITY.md, CITATION.cff, this changelog.
 - Served with waitress, with request bodies bounded to the upload limit plus 1 MiB.

@@ -56,7 +56,8 @@
 			       {% if errors.get('image') %}aria-invalid="true" aria-describedby="image-hint image-error"{% else %}aria-describedby="image-hint"{% endif %}>
 			<div class="form-text" id="image-hint">JPEG, PNG, WebP or BMP, up to {{ limits.max_upload_bytes // 1048576 }} MB.
 				Larger images are reduced to {{ limits.max_side }} px on the long side. Metadata is discarded and the
-				results are deleted after {{ limits.job_ttl_minutes }} minutes.</div>
+				results expire {{ limits.job_ttl_minutes }} minutes after processing, deleted at the next accepted
+				upload or the next request for any result after that.</div>
 			{% if errors.get('image') %}<div class="invalid-feedback" id="image-error">{{ errors['image'] }}</div>{% endif %}
 		</div>
 		{{ select("detector", "Object detector", "models", detectors) }}

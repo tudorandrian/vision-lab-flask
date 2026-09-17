@@ -1,15 +1,16 @@
 """Upload decoding and per-job storage.
 
-The client never chooses a path: a job is a random 128-bit id, files inside it
-have fixed names, and both are checked against strict patterns before any disk
-access. Uploaded pixels are re-encoded, so EXIF data (GPS position, device
-serial numbers) never reaches the disk.
+The client never chooses a path: a job is a random UUID4 (122 random bits), files
+inside it have fixed names, and both are checked against strict patterns before
+any disk access. Uploaded pixels are re-encoded, so EXIF data (GPS position,
+device serial numbers) never reaches the disk.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import shutil
 import threading
@@ -30,6 +31,7 @@ from vision_lab.ops import downscale_to
 ALLOWED_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "BMP"})
 _JOB_ID = re.compile(r"[0-9a-f]{32}")
 _FILE_NAME = re.compile(r"[a-z0-9_]{1,40}\.(?:jpg|png)")
+_logger = logging.getLogger("vision_lab")
 
 
 class UploadError(ValueError):
@@ -157,11 +159,20 @@ class JobStore:
                     )
                 except FileNotFoundError:
                     continue  # already gone
+                except OSError:
+                    _logger.warning("could not check job directory %s", entry.name)
+                    continue
                 if not is_expired:
                     continue
                 try:
                     shutil.rmtree(entry)
-                except (FileNotFoundError, PermissionError):
-                    continue  # already gone, or another process is mid-delete
+                except FileNotFoundError:
+                    continue  # already gone
+                except OSError:
+                    # Another process mid-delete (PermissionError), or a handle held open
+                    # by something else (an antivirus or indexer, EBUSY, WinError 145).
+                    # One stuck directory must not stop the purge or the request it runs on.
+                    _logger.warning("could not remove job directory %s", entry.name)
+                    continue
                 removed += 1
         return removed
