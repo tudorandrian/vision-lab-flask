@@ -125,13 +125,15 @@ def decode_pending(pending: PendingUpload, *, max_side: int) -> Image:
         # large photo. draft() is a no-op for every other format (the base
         # Image class defines it as such), so this is safe to call
         # unconditionally. For a large JPEG the drafted decode is a close
-        # but not pixel-exact approximation of a full decode: measured here
-        # with the bundled sample image upscaled to 4000x4000 and
-        # re-encoded (quality 90), then both decodes downscaled the same
-        # way afterward, the maximum absolute channel difference was 5
-        # (mean 0.21). The sample image itself, at its native 512x512
-        # (well under this application's default max_side of 1600, so
-        # draft() has nothing to do), decodes bit-identical either way.
+        # but not pixel-exact approximation of a full decode: with the
+        # bundled sample image upscaled to 4000x4000 and re-encoded
+        # (quality 90), then both decodes downscaled the same way
+        # afterward, the two differ by single digits out of 255 per
+        # channel; the exact figure depends on which resize filter is used
+        # for that final downscale, not on draft() itself, so no specific
+        # number is quoted here. The sample image itself, at its native
+        # 512x512 (well under this application's default max_side of 1600,
+        # so draft() has nothing to do), decodes bit-identical either way.
         picture.draft("RGB", (max_side, max_side))
         upright = ImageOps.exif_transpose(picture).convert("RGB")
     except _UNREADABLE as error:

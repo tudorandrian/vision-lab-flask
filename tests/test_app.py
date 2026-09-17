@@ -229,10 +229,16 @@ def test_result_page_is_never_cached_but_its_images_may_be(client: FlaskClient) 
 
 
 def test_pages_make_no_third_party_requests(client: FlaskClient) -> None:
+    """The two external links in the footer (source and licence text) are places a
+    reader can go, not resources the page fetches on its own; nothing else external
+    should appear anywhere on the page."""
     for path in ["/", "/algorithms", submit(client).headers["Location"]]:
         html = client.get(path).get_data(as_text=True)
         external = re.findall(r'(?:src|href|action)="(https?://[^"]+)"', html)
-        assert external == ["https://github.com/tudorandrian/vision-lab-flask"]
+        assert external == [
+            "https://github.com/tudorandrian/vision-lab-flask",
+            "https://www.gnu.org/licenses/agpl-3.0.html",
+        ]
 
 
 def test_footer_source_link_follows_the_configured_source_url(settings: Settings) -> None:
