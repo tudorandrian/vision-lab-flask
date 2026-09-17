@@ -8,6 +8,7 @@ is loaded once per process, on first use, and then reused.
 from __future__ import annotations
 
 import importlib.util
+import os
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -88,7 +89,12 @@ class TorchvisionDetector:
 
 
 class YoloDetector:
-    """Ultralytics YOLOv5u. AGPL-3.0; installed only with the 'yolo' extra."""
+    """Ultralytics YOLOv5u. AGPL-3.0; installed only with the 'yolo' extra.
+
+    A YOLO instance keeps per-call predictor state, so calls are serialised
+    with a lock; the torchvision models above are stateless under
+    inference_mode and need no lock.
+    """
 
     def __init__(self, weights_dir: Path, variant: str, score_threshold: float = 0.5) -> None:
         from ultralytics import YOLO, settings
@@ -97,9 +103,11 @@ class YoloDetector:
         settings.update({"sync": False, "weights_dir": str(weights_dir)})
         self._threshold = score_threshold
         self._model = YOLO(str(weights_dir / f"{variant}.pt"))
+        self._lock = threading.Lock()
 
     def detect(self, image: Image) -> list[Detection]:
-        result = self._model.predict(image, conf=self._threshold, verbose=False)[0]
+        with self._lock:
+            result = self._model.predict(image, conf=self._threshold, verbose=False)[0]
         names = result.names
         return [
             Detection(names[int(label)], float(score), tuple(int(v) for v in box))  # type: ignore[arg-type]
@@ -141,6 +149,12 @@ class DeepLabSegmenter:
 
 class DeepFaceEmotionAnalyzer:
     """DeepFace emotion model. Installed only with the 'emotion' extra, off by default."""
+
+    def __init__(self, weights_dir: Path) -> None:
+        self._weights_dir = weights_dir
+        # DeepFace reads DEEPFACE_HOME at import time and stores weights under
+        # <home>/.deepface/weights, so this must be set before the import below.
+        os.environ.setdefault("DEEPFACE_HOME", str(weights_dir))
 
     def analyze(self, image: Image) -> list[FaceEmotion]:
         from deepface import DeepFace
@@ -205,4 +219,4 @@ class ModelRegistry:
     def emotion_analyzer(self) -> EmotionAnalyzer | None:
         if not self.emotion_available():
             return None
-        return self._get("deepface", DeepFaceEmotionAnalyzer)  # type: ignore[no-any-return]
+        return self._get("deepface", lambda: DeepFaceEmotionAnalyzer(self.weights_dir))  # type: ignore[no-any-return]
