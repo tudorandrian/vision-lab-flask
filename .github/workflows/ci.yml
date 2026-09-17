@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"   # weekly: catches new advisories and upstream weight changes
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.15"
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # astral-sh/setup-uv publishes no floating major tag, so this is pinned to a
+      # release; Dependabot (github-actions) proposes updates.
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run bandit -q -r src
+      - run: uv run python scripts/check_text.py
+      - run: uv run python scripts/gen_algorithms_doc.py --check
+      # torch and torchvision carry a +cpu local version, which PyPI advisories cannot
+      # match; pip-audit lists them as skipped. Dependabot alerts cover them instead.
+      - run: uv run pip-audit --skip-editable
+
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+        python: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --python ${{ matrix.python }}
+      - run: uv run pytest --cov --cov-report=term-missing
+
+  models:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - uses: actions/cache@v6
+        with:
+          path: instance/weights
+          key: weights-${{ hashFiles('src/vision_lab/inference.py') }}
+      - run: uv sync --locked --extra yolo
+      - run: uv run pytest -m models --no-cov
+
+  browser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m e2e --no-cov
+
+  container:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t vision-lab-flask:ci .
+      - name: Start the container and wait for a healthy status
+        run: |
+          docker run -d --name app -p 127.0.0.1:8000:8000 vision-lab-flask:ci
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' app)
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          docker logs app
+          [ "$status" = "healthy" ]
+          [ "$(docker exec app id -u)" = "10001" ]
+          curl --fail --silent http://127.0.0.1:8000/healthz
+
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
