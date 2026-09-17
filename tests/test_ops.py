@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 import pytest
 
@@ -44,11 +45,15 @@ def test_rgb_montage_orders_planes_red_green_blue() -> None:
     assert (montage[:, :4].max(), montage[:, 4:8].max(), montage[:, 8:].min()) == (0, 0, 255)
 
 
-def test_rotation_by_90_swaps_sides_and_keeps_every_pixel(square: np.ndarray) -> None:
-    tall = np.ascontiguousarray(square[:, :60])
-    rotated = ops.transform(tall, rotation_angle=90)
-    assert rotated.shape[:2] == (60, 100)
-    assert abs(int(rotated.sum()) - int(tall.sum())) / tall.sum() < 0.02
+@pytest.mark.parametrize(
+    "angle, rot90_k",
+    [(90, 1), (180, 2), (270, 3), (-90, -1)],
+)
+def test_right_angle_rotation_matches_numpy_rot90_exactly(angle: int, rot90_k: int) -> None:
+    rng = np.random.default_rng(3)
+    image = rng.integers(1, 256, (5, 7, 3), dtype=np.uint8)
+    rotated = ops.transform(image, rotation_angle=angle)
+    assert np.array_equal(rotated, np.rot90(image, k=rot90_k))
 
 
 def test_rotation_by_45_grows_the_canvas(square: np.ndarray) -> None:
@@ -69,6 +74,11 @@ def test_upscaling_is_capped_by_max_side(square: np.ndarray) -> None:
     assert max(ops.transform(square, scale_factor=4.0, max_side=250).shape[:2]) == 250
 
 
+def test_downscaling_a_tiny_image_never_rounds_to_zero() -> None:
+    tiny = np.zeros((4, 4, 3), dtype=np.uint8)
+    assert ops.transform(tiny, scale_factor=0.1).shape[:2] == (1, 1)
+
+
 def test_horizontal_flip_mirrors_columns() -> None:
     image = np.zeros((2, 3, 3), dtype=np.uint8)
     image[:, 0] = 255
@@ -79,8 +89,11 @@ def test_median_removes_salt_and_pepper_noise() -> None:
     rng = np.random.default_rng(7)
     image = np.full((100, 100, 3), 128, dtype=np.uint8)
     noisy = image.copy()
-    mask = rng.random((100, 100)) < 0.05
-    noisy[mask] = 255
+    draw = rng.random((100, 100))
+    salt_mask = draw < 0.025
+    pepper_mask = (draw >= 0.025) & (draw < 0.05)
+    noisy[salt_mask] = 255
+    noisy[pepper_mask] = 0
     restored = ops.smooth(noisy, "median", 3)
     assert np.mean(restored == 128) > 0.99
 
@@ -101,6 +114,22 @@ def test_edges_lie_on_the_square_outline(algorithm: str, square: np.ndarray) -> 
     assert edges[0:20, 0:20].max() == 0, "flat background must have no response"
     assert edges[28:32, 40:60].max() >= 128, "top side of the square must respond"
     assert edges[40:60, 28:32].max() >= 128, "left side must respond: both gradient directions"
+    assert edges[68:72, 40:60].max() >= 128, "bottom side must respond: both gradient directions"
+    assert edges[40:60, 68:72].max() >= 128, "right side must respond: both gradient directions"
+
+
+def test_log_response_is_spread_by_its_gaussian() -> None:
+    """A LoG without its blur is a bare 3x3 Laplacian: a single impulse stays a single point.
+
+    With the Gaussian, the same impulse spreads its response over a wider
+    neighbourhood, which a plain |Laplacian| response cannot reproduce.
+    """
+    gray = np.full((64, 64), 128, dtype=np.uint8)
+    gray[32, 32] = 255
+    image = np.dstack([gray, gray, gray])
+    edges = ops.detect_edges(image, "log", 100, 200)
+    region = edges[27:38, 27:38]
+    assert np.count_nonzero(region > 10) > 20
 
 
 @pytest.mark.parametrize("kind", EQUALIZATIONS)
@@ -114,6 +143,41 @@ def test_ahe_is_stronger_than_clahe(gradient: np.ndarray) -> None:
     assert (
         ops.equalize(gradient, "ahe", 2.0, 8).std() > ops.equalize(gradient, "clahe", 2.0, 8).std()
     )
+
+
+def test_ahe_stretches_locally_far_more_than_global_equalisation() -> None:
+    """Two narrow-contrast bands far apart in level: AHE must stretch each tile on its own.
+
+    A defective AHE that falls back to global equalizeHist would show the same
+    contrast gain as he on this image, since he is exactly that global operation.
+    """
+    left = np.linspace(20, 40, 128, dtype=np.uint8)
+    right = np.linspace(215, 235, 128, dtype=np.uint8)
+    row = np.concatenate([left, right])
+    gray = np.tile(row, (256, 1))
+    image = np.dstack([gray, gray, gray])
+
+    he_tile_std = ops.equalize(image, "he", 2.0, 8)[:, :32].astype(np.float64).std()
+    ahe_tile_std = ops.equalize(image, "ahe", 2.0, 8)[:, :32].astype(np.float64).std()
+    assert ahe_tile_std > he_tile_std * 2
+
+
+@pytest.mark.parametrize("kind", EQUALIZATIONS)
+def test_equalisation_preserves_colour(kind: str) -> None:
+    """Equalising the L channel only must leave the a/b chrominance channels nearly unchanged."""
+    ramp = np.tile(np.linspace(96, 159, 256, dtype=np.uint8), (256, 1))
+    image = np.zeros((256, 256, 3), dtype=np.uint8)
+    image[:, :, 2] = ramp  # a reddish ramp: only the red (BGR index 2) channel varies
+    image[:, :, 1] = 40
+    image[:, :, 0] = 40
+
+    lab_before = cv2.cvtColor(image, cv2.COLOR_BGR2LAB).astype(np.float64)
+    result = ops.equalize(image, kind, 2.0, 8)
+    lab_after = cv2.cvtColor(result, cv2.COLOR_BGR2LAB).astype(np.float64)
+
+    assert np.mean(np.abs(lab_after[:, :, 1] - lab_before[:, :, 1])) < 8.0
+    assert np.mean(np.abs(lab_after[:, :, 2] - lab_before[:, :, 2])) < 8.0
+    assert not np.array_equal(result[:, :, 0], result[:, :, 1])
 
 
 @pytest.mark.parametrize("kind", ["brightness", "contrast"])
@@ -140,6 +204,26 @@ def test_denoise_is_not_a_placeholder() -> None:
     rng = np.random.default_rng(7)
     noisy = rng.normal(128, 15, (64, 64, 3)).clip(0, 255).astype(np.uint8)
     assert ops.enhance(noisy, "denoise", 1.0).std() < noisy.std() / 2
+
+
+def test_denoise_reduces_flat_noise_but_keeps_the_edge_sharp() -> None:
+    """Non-local means, unlike a plain blur, smooths flat regions without softening edges."""
+    rng = np.random.default_rng(7)
+    base = np.zeros((64, 64), dtype=np.uint8)
+    base[:, :32] = 60
+    base[:, 32:] = 190
+    noise = rng.normal(0, 15, (64, 64))
+    noisy_gray = np.clip(base.astype(np.float64) + noise, 0, 255).astype(np.uint8)
+    noisy = np.dstack([noisy_gray, noisy_gray, noisy_gray])
+
+    denoised = ops.enhance(noisy, "denoise", 1.0)
+
+    noisy_flat_std = noisy[:, :28].astype(np.float64).std()
+    denoised_flat_std = denoised[:, :28].astype(np.float64).std()
+    assert denoised_flat_std < noisy_flat_std / 2
+
+    edge_jump = np.mean(np.abs(denoised[:, 32, 0].astype(int) - denoised[:, 31, 0].astype(int)))
+    assert edge_jump > 100
 
 
 @pytest.mark.parametrize("kind", ENHANCEMENTS)

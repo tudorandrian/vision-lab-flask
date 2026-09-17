@@ -64,18 +64,22 @@ def transform(
     result = image
     if rotation_angle % 360 != 0:
         height, width = result.shape[:2]
-        matrix = cv2.getRotationMatrix2D((width / 2, height / 2), rotation_angle, 1.0)
+        center = ((width - 1) / 2, (height - 1) / 2)
+        matrix = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
         cos, sin = abs(matrix[0, 0]), abs(matrix[0, 1])
-        new_width = int(height * sin + width * cos)
-        new_height = int(height * cos + width * sin)
-        matrix[0, 2] += new_width / 2 - width / 2
-        matrix[1, 2] += new_height / 2 - height / 2
+        new_width = round(height * sin + width * cos)
+        new_height = round(height * cos + width * sin)
+        matrix[0, 2] += (new_width - 1) / 2 - (width - 1) / 2
+        matrix[1, 2] += (new_height - 1) / 2 - (height - 1) / 2
         result = cv2.warpAffine(result, matrix, (new_width, new_height))
     if scale_factor != 1.0:
         interpolation = cv2.INTER_AREA if scale_factor < 1.0 else cv2.INTER_LINEAR
-        result = cv2.resize(
-            result, None, fx=scale_factor, fy=scale_factor, interpolation=interpolation
+        height, width = result.shape[:2]
+        dsize = (
+            max(1, round(width * scale_factor)),
+            max(1, round(height * scale_factor)),
         )
+        result = cv2.resize(result, dsize, interpolation=interpolation)
         result = downscale_to(result, max_side)
     x, y, crop_width, crop_height = crop
     if crop_width > 0 and crop_height > 0:
@@ -97,7 +101,15 @@ def smooth(image: Image, filter_type: str, kernel_size: int) -> Image:
 
 
 def detect_edges(image: Image, algorithm: str, threshold1: int, threshold2: int) -> Image:
-    """Edge map as a single uint8 plane, full gradient magnitude for every operator."""
+    """Edge map as a single uint8 plane, on a scale specific to the algorithm.
+
+    canny: binary thinned edges from hysteresis; threshold1 and threshold2 are
+    the low and high thresholds and are used only by this branch. sobel,
+    scharr and roberts: normalised gradient magnitude, combining both
+    directions. log: normalised absolute Laplacian of a Gaussian-blurred
+    image, a second derivative whose edges lie at zero crossings between
+    twin bands rather than at a single ridge.
+    """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     if algorithm == "canny":
         return cv2.Canny(gray, threshold1, threshold2)
