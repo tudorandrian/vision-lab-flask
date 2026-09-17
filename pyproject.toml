@@ -59,6 +59,26 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/vision_lab"]
 
+# Without this, hatchling includes every file not excluded by .gitignore, which does not
+# cover .git/info/exclude (where the local .superpowers/ workspace is excluded) or the
+# instance/ directory a local run creates. List what belongs in a source distribution instead.
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "tests",
+    "docs",
+    "samples",
+    "scripts",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CITATION.cff",
+    "LICENSE",
+    "pyproject.toml",
+    "uv.lock",
+]
+
 # CPU-only PyTorch wheels on every platform: the default Linux wheels bundle
 # several gigabytes of CUDA libraries this project never uses.
 [tool.uv.sources]
