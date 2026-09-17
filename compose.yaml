@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"   # loopback only: the app has no authentication
+    volumes:
+      - vision-lab-data:/data
+    environment:
+      VISION_LAB_JOB_TTL_MINUTES: "60"
+    mem_limit: 2g
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+volumes:
+  vision-lab-data:
