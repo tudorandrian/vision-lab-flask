@@ -40,22 +40,38 @@ def decode_upload(stream: IO[bytes], *, max_pixels: int, max_side: int) -> Image
 
     The header is inspected before any pixel is decoded, so an image that
     claims enormous dimensions (a decompression bomb) is rejected cheaply.
+
+    Pillow's own decompression-bomb guard warns above MAX_IMAGE_PIXELS and
+    raises above twice that. The warning is suppressed here because our own
+    max_pixels check below is stricter and gives a clearer message; the
+    error is still caught, for the rare header that is too extreme for
+    Pillow to even measure without refusing outright.
     """
     data = stream.read()
     if not data:
         raise UploadError("The file is empty.")
     try:
         with warnings.catch_warnings():
-            warnings.simplefilter("error", PilImage.DecompressionBombWarning)
+            warnings.simplefilter("ignore", PilImage.DecompressionBombWarning)
             picture = PilImage.open(io.BytesIO(data))
-            if picture.format not in ALLOWED_FORMATS:
+            # A phone camera JPEG carrying an MPF segment (a second, small
+            # preview frame) is identified by Pillow as format "MPO", not
+            # "JPEG". Only the first (primary) frame is used, by default.
+            fmt = "JPEG" if picture.format == "MPO" else picture.format
+            if fmt not in ALLOWED_FORMATS:
                 raise UploadError("Only JPEG, PNG, WebP and BMP images are accepted.")
             if picture.width * picture.height > max_pixels:
                 raise UploadError(f"The image has more than {max_pixels:,} pixels.")
             upright = ImageOps.exif_transpose(picture).convert("RGB")
     except UploadError:
         raise
-    except (UnidentifiedImageError, OSError, ValueError, Warning) as error:
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        Warning,
+        PilImage.DecompressionBombError,
+    ) as error:
         raise UploadError("The file could not be read as an image.") from error
     bgr = cv2.cvtColor(np.asarray(upright, dtype=np.uint8), cv2.COLOR_RGB2BGR)
     return downscale_to(bgr, max_side)
