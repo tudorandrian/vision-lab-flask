@@ -53,3 +53,15 @@ def test_segmentation_labels_a_large_person_region(
 def test_models_are_built_once(registry: ModelRegistry) -> None:
     assert registry.segmenter() is registry.segmenter()
     assert registry.detector("fasterrcnn") is registry.detector("fasterrcnn")
+
+
+def test_yolo_detector_disables_autoinstall_and_unsafe_pickle_load(
+    registry: ModelRegistry,
+) -> None:
+    """A tampered or substituted checkpoint must not run arbitrary code, and a
+    Pillow decode failure during a request must never trigger a PyPI install."""
+    registry.detector("yolov5nu")
+    import ultralytics.utils as ultra_utils
+
+    assert ultra_utils.AUTOINSTALL is False
+    assert ultra_utils.SAFE_LOAD is True

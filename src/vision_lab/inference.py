@@ -107,6 +107,16 @@ class YoloDetector:
     def __init__(
         self, weights_dir: Path, variant: str, score_threshold: float = DEFAULT_SCORE_THRESHOLD
     ) -> None:
+        # Ultralytics reads these as module-level constants the first time
+        # ultralytics.utils is imported, so they must be set before the import
+        # below. Unset, a decode failure on a hostile upload (Pillow's opener
+        # is patched by ultralytics on import) triggers `uv pip install` from
+        # PyPI mid-request (AUTOINSTALL defaults True, utils/__init__.py), and
+        # the checkpoint is unpickled with weights_only=False (SAFE_LOAD
+        # defaults False, utils/patches.py): neither an unlocked package nor
+        # code execution from a tampered checkpoint is acceptable while serving.
+        os.environ.setdefault("YOLO_AUTOINSTALL", "false")
+        os.environ.setdefault("ULTRALYTICS_SAFE_LOAD", "1")
         from ultralytics import YOLO, settings
 
         # Ultralytics reports anonymous usage analytics unless told not to.
