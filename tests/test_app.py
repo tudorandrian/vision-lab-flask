@@ -17,6 +17,7 @@ from PIL import Image as PilImage
 from tests.conftest import FakeDetector, FakeRegistry, png_bytes
 from vision_lab.app import create_app
 from vision_lab.config import Settings
+from vision_lab.storage import JobStore
 
 JOB_URL = re.compile(r"/jobs/([0-9a-f]{32})$")
 IMAGE_SRC = re.compile(r'src="(/jobs/[^"]+)"')
@@ -154,6 +155,20 @@ def test_unknown_things_are_404(client: FlaskClient, path: str) -> None:
     assert client.get(path).status_code == 404
 
 
+def test_a_file_deleted_between_the_check_and_send_is_404(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another thread's purge can remove the file after job_file's is_file() check."""
+    location = submit(client).headers["Location"]
+
+    def vanished(*_args: object, **_kwargs: object) -> None:
+        raise FileNotFoundError
+
+    monkeypatch.setattr("vision_lab.app.send_file", vanished)
+    response = client.get(f"{location}/files/original.jpg")
+    assert response.status_code == 404
+
+
 def test_result_json_and_traversal_are_not_served(client: FlaskClient) -> None:
     job = submit(client).headers["Location"]
     for name in ["result.json", "..%2Fresult.json", "%2e%2e/%2e%2e/pyproject.toml"]:
@@ -261,6 +276,28 @@ def test_expired_results_are_404_without_a_new_upload(
     assert client.get(location).status_code == 404
     assert client.get(f"{location}/files/original.jpg").status_code == 404
     assert not job_dir.exists()
+
+
+def test_old_results_without_segmenter_or_threshold_still_render(
+    client: FlaskClient, settings: Settings
+) -> None:
+    """A result.json written before this branch's fix lacks the two new keys."""
+    store = JobStore(settings.jobs_dir, settings.job_ttl_minutes)
+    job_id = store.create()
+    store.save_result(
+        job_id,
+        {
+            "detector": "Faster R-CNN, MobileNetV3-Large 320 FPN",
+            "detections": [{"label": "person", "confidence": 0.91}],
+            "segments": [],
+            "faces": None,
+            "sections": [],
+            "size": {"width": 64, "height": 48},
+            "seconds": 0.1,
+        },
+    )
+    response = client.get(f"/jobs/{job_id}")
+    assert response.status_code == 200
 
 
 def test_result_page_shows_the_actual_model_names_and_threshold(client: FlaskClient) -> None:

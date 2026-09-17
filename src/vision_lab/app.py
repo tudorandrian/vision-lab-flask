@@ -147,7 +147,12 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             abort(404)
         if not path.is_file():
             abort(404)
-        response = send_file(path, max_age=300)
+        try:
+            # Another thread's purge_expired can remove the file between the
+            # is_file() check above and send_file actually opening it.
+            response = send_file(path, max_age=300)
+        except FileNotFoundError:
+            abort(404)
         response.headers["Cache-Control"] = "private, max-age=300"
         return response
 
