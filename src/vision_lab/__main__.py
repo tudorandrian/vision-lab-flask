@@ -53,14 +53,23 @@ def main() -> None:
     # so an oversized upload would otherwise be written to disk first. Bounding
     # it here at the upload limit plus a small margin (multipart framing and the
     # other form fields) makes waitress itself refuse it, cheaply.
-    serve(
-        create_app(settings),
-        host=args.host,
-        port=args.port,
-        threads=8,
-        ident="vision-lab",
-        max_request_body_size=settings.max_upload_bytes + 1024 * 1024,
-    )
+    try:
+        serve(
+            create_app(settings),
+            host=args.host,
+            port=args.port,
+            threads=8,
+            ident="vision-lab",
+            max_request_body_size=settings.max_upload_bytes + 1024 * 1024,
+        )
+    except KeyboardInterrupt:
+        # waitress's own run loop already catches KeyboardInterrupt and shuts
+        # down cleanly (see _raise_keyboard_interrupt above), so this only
+        # fires for a SIGTERM that arrives before serve() reaches that loop,
+        # for example while create_app() is still building the Flask app.
+        # Without this, that KeyboardInterrupt would escape main() as a raw
+        # traceback instead of the same quiet shutdown as the normal case.
+        logging.getLogger("vision_lab").info("shutting down")
 
 
 if __name__ == "__main__":

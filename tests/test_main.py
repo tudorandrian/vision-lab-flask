@@ -57,3 +57,23 @@ def test_sigterm_is_turned_into_a_graceful_shutdown(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("vision_lab.__main__.serve", fake_serve)
 
     main()
+
+
+def test_sigterm_during_app_construction_does_not_produce_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The SIGTERM handler is registered before create_app()/serve() run, but
+    create_app() itself is not inside waitress's own run loop: if SIGTERM
+    arrives while the app is still being built, the KeyboardInterrupt it
+    raises must not escape main() as a raw traceback."""
+    monkeypatch.setattr(sys, "argv", ["vision-lab"])
+    monkeypatch.setattr("vision_lab.__main__.signal.signal", lambda *_a, **_k: None)
+
+    def fake_create_app(settings: object) -> None:
+        raise KeyboardInterrupt("terminated by SIGTERM")
+
+    monkeypatch.setattr("vision_lab.__main__.create_app", fake_create_app)
+
+    main()  # must return normally, not raise
+
+    assert "Traceback" not in capsys.readouterr().err
