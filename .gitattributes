@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.jpg binary
+*.png binary
+uv.lock linguist-generated=true
+src/vision_lab/static/vendor/** linguist-vendored=true
+docs/algorithms.md linguist-generated=true

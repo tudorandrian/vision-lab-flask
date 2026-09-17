@@ -1,20 +1,30 @@
-/uploads/negative_3_dog.jpg
-/uploads/8d108933bfb44d06975e1ab2b2a89a36_multiple_faces_emotions.jpg
-/uploads/multiple_faces_emotions.jpg
-/uploads/boy_white_background.jpg
-/uploads/processed_boy_white_background.jpg
-/uploads/couple_color.jpg
-/uploads/processed_couple_color.jpg
-/uploads/segmented_couple_color.jpg
-/uploads/eba18cd6b9684c149805e9008e3ccfd8_negative_3_dog.jpg
-/uploads/processed_eba18cd6b9684c149805e9008e3ccfd8_negative_3_dog.jpg
-/uploads/segmented_eba18cd6b9684c149805e9008e3ccfd8_negative_3_dog.jpg
-/uploads/sample_image.jpg
-/uploads/segmented_sample_image.jpg
-/uploads/6e974e69b68d4ebe93173162dc7e6ea7_sample_image.jpg
-/uploads/33be6324fbef485c89a6c58faf9b6f00_sample_image.jpg
-/uploads/94d45b47bd9e4f1987274136a6526bd1_sample_image.jpg
-/uploads/cc98284ee84c4a4f83bc3ecc735922a7_sample_image.jpg
-/uploads/processed_sample_image.jpg
-/yolov5n.pt
-/.idea/codeStyles/codeStyleConfig.xml
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+test-results/
+
+# Runtime data: model weights, uploads and results never belong in git
+instance/
+*.pt
+*.pth
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
