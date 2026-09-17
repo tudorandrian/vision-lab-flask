@@ -14,15 +14,20 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - Installable package `vision_lab` with an application factory and a `vision-lab` command.
 - Reproducible environment with uv (`pyproject.toml`, `uv.lock`) and a Docker image; Anaconda is no longer needed.
 - Input validation for every form field, with all errors reported at once.
-- Private per-job storage under random identifiers, automatic deletion, metadata removal.
+- Settings are validated at start-up: an invalid environment variable is reported by name with
+  its accepted range, and the process exits with a clear message instead of starting a server
+  that is silently broken.
+- Private per-job storage under random identifiers, lazy deletion, metadata removal.
 - Strict security headers, generic error pages, a bounded inference queue.
-- Test suite at five levels (unit, web, models, browser, load) and continuous integration on Linux and Windows.
+- Test suite at several levels (static analysis, unit, web, models, browser, container, load) and continuous integration on Linux and Windows.
+- CI audits the `yolo` and `emotion` extras for known vulnerabilities, in addition to the base dependency set.
 - English interface, accessible markup, an Algorithms page and `docs/algorithms.md` generated from one catalogue.
-- LICENSE (AGPL-3.0-or-later), SECURITY.md, CITATION.cff, this changelog.
+- LICENSE (AGPL-3.0-or-later), SECURITY.md, CITATION.cff, CONTRIBUTING.md, this changelog.
 - Served with waitress, with request bodies bounded to the upload limit plus 1 MiB.
 - Decompression bombs and camera MPO JPEGs are handled correctly on upload.
-- Results expire automatically a configurable time after they were created, checked both on
-  upload and on a later read.
+- Results are deleted lazily: a job older than a configurable time, measured from when its
+  processing finished, is removed at the next accepted upload or the next request for any result
+  or image, not by a timer running in the background.
 
 ### Changed
 
@@ -41,6 +46,27 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 - Even kernel sizes, out-of-range crops and large scale factors crashed OpenCV or exhausted memory.
 - The unit tests called functions with signatures that no longer existed and could not pass.
 - Rotation used an integer centre half a pixel off true centre, on a fixed-size canvas that cut off the corners of a rotated image; rotation now uses the exact centre on a canvas that grows to fit, checked against `np.rot90` for the 90 degree steps.
+- The container ignored SIGTERM (Python as PID 1 has no default handler for it), so a normal
+  `docker stop` ran out the grace period and killed the server; it now shuts down gracefully.
+- A result page could be served stale from a shared cache past its expiry; it is now sent with
+  `Cache-Control: no-store` (its images may still keep a short private cache).
+
+### Security
+
+- Ultralytics' automatic installation of missing packages from PyPI, and its unsafe pickle
+  loading of the YOLO checkpoint, are forced off by an unconditional module-scope assignment
+  (not a default), before the library is ever imported, so the environment cannot re-enable
+  either check: previously a hostile upload with the `yolo` extra installed could make the server
+  install an unpinned package, or load an unverified checkpoint, at request time.
+- torchvision detector and segmenter weights are pinned to explicit enum members (`COCO_V1`,
+  `COCO_WITH_VOC_LABELS_V1`) instead of `.DEFAULT`, so a torchvision upgrade cannot silently
+  change detection or segmentation results.
+- An upload's header (format, dimensions) is now checked before the inference slot is acquired, so
+  an invalid upload is rejected immediately instead of waiting behind a busy server; only the full
+  pixel decode, which can use hundreds of MB for a large photo, happens once the slot is held.
+- A job id inside a logged request path (a capability URL) is redacted to its first eight
+  characters plus an ellipsis; the rest of the path is kept so the route that failed is still
+  identifiable.
 
 ### Removed
 

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import errno
 import io
+import logging
 import os
 import re
+import shutil
 import threading
 import time
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,9 +20,9 @@ from flask.testing import FlaskClient
 from PIL import Image as PilImage
 
 from tests.conftest import FakeDetector, FakeRegistry, png_bytes
+from vision_lab import app as app_module
 from vision_lab.app import create_app
 from vision_lab.config import Settings
-from vision_lab.storage import JobStore
 
 JOB_URL = re.compile(r"/jobs/([0-9a-f]{32})$")
 IMAGE_SRC = re.compile(r'src="(/jobs/[^"]+)"')
@@ -122,6 +127,21 @@ def test_bad_files_give_400(client: FlaskClient, payload: bytes) -> None:
     assert response.status_code == 400
 
 
+def test_a_file_that_passes_header_validation_but_fails_to_decode_is_400(
+    client: FlaskClient,
+) -> None:
+    """A truncated JPEG has a valid header (format, width, height all parse)
+    but fails once the pixel data itself is actually decoded, which only
+    happens inside the slot; this must still be a 400, not a 500."""
+    buffer = io.BytesIO()
+    PilImage.new("RGB", (200, 200)).save(buffer, format="JPEG")
+    truncated = buffer.getvalue()[: len(buffer.getvalue()) // 2]
+    data = {"image": (io.BytesIO(truncated), "x.jpg")}
+    response = client.post("/jobs", data=data, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert "could not be read" in response.get_data(as_text=True)
+
+
 def test_missing_file_gives_400(client: FlaskClient) -> None:
     assert client.post("/jobs", data={}).status_code == 400
 
@@ -196,11 +216,39 @@ def test_security_headers_on_every_response(client: FlaskClient) -> None:
     assert "Set-Cookie" not in client.get("/").headers
 
 
+def test_result_page_is_never_cached_but_its_images_may_be(client: FlaskClient) -> None:
+    """A shared browser cache must not keep a result page past its TTL: once
+    the job is purged, the page must be re-fetched, not served stale from a
+    cache. The images it links to may still keep a short private cache."""
+    location = submit(client).headers["Location"]
+    page = client.get(location)
+    assert page.headers["Cache-Control"] == "no-store"
+    image = client.get(f"{location}/files/original.jpg")
+    assert image.headers["Cache-Control"] == "private, max-age=300"
+    image.close()
+
+
 def test_pages_make_no_third_party_requests(client: FlaskClient) -> None:
+    """The two external links in the footer (source and licence text) are places a
+    reader can go, not resources the page fetches on its own; nothing else external
+    should appear anywhere on the page."""
     for path in ["/", "/algorithms", submit(client).headers["Location"]]:
         html = client.get(path).get_data(as_text=True)
         external = re.findall(r'(?:src|href|action)="(https?://[^"]+)"', html)
-        assert external == ["https://github.com/tudorandrian/vision-lab-flask"]
+        assert external == [
+            "https://github.com/tudorandrian/vision-lab-flask",
+            "https://www.gnu.org/licenses/agpl-3.0.html",
+        ]
+
+
+def test_footer_source_link_follows_the_configured_source_url(settings: Settings) -> None:
+    """An operator who modifies and deploys this application must be able to point
+    section 13's source link at their own fork, not the upstream repository."""
+    forked = replace(settings, source_url="https://example.invalid/my-fork")
+    flask_app = create_app(forked, FakeRegistry(forked.weights_dir))
+    html = flask_app.test_client().get("/").get_data(as_text=True)
+    assert 'href="https://example.invalid/my-fork"' in html
+    assert "https://github.com/tudorandrian/vision-lab-flask" not in html
 
 
 def test_model_failure_gives_a_500_page_without_details_and_cleans_up(
@@ -242,6 +290,113 @@ def test_second_concurrent_job_gets_503_with_retry_after(settings: Settings) -> 
     assert submit(flask_app.test_client()).status_code == 303, "the slot is released afterwards"
 
 
+def test_decoding_waits_for_the_inference_slot(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decoding a large image can use hundreds of MB; it must happen after the
+    inference slot is acquired, or every waitress thread could decode at once.
+    """
+    settings = replace(settings, max_concurrent_jobs=1, queue_seconds=5.0)
+    real_decode = app_module.decode_pending
+    active = 0
+    overlapped = False
+    lock = threading.Lock()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def fake_decode(pending: object, **kwargs: object) -> Any:
+        nonlocal active, overlapped
+        with lock:
+            active += 1
+            if active > 1:
+                overlapped = True
+        entered.set()
+        release.wait(timeout=10)
+        try:
+            return real_decode(pending, **kwargs)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr("vision_lab.app.decode_pending", fake_decode)
+    flask_app = create_app(settings, FakeRegistry(settings.weights_dir))
+    results: list[int] = []
+    lock2 = threading.Lock()
+
+    def worker() -> None:
+        status = submit(flask_app.test_client()).status_code
+        with lock2:
+            results.append(status)
+
+    first = threading.Thread(target=worker)
+    first.start()
+    assert entered.wait(timeout=10), "the first request never reached decode"
+    second = threading.Thread(target=worker)
+    second.start()
+    # Give a buggy (decode-before-slot) implementation a chance to let the
+    # second request's decode start while the first is still blocked above;
+    # the assertion below is unaffected by scheduling either way.
+    time.sleep(0.3)
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+
+    assert not overlapped, "two decodes ran at the same time"
+    assert sorted(results) == [303, 303]
+
+
+def test_pre_slot_checks_stay_fast_while_the_slot_is_held(settings: Settings) -> None:
+    """Only a genuinely valid upload should ever wait for a busy slot.
+
+    A bad parameter, a bad file, and an oversized upload must all fail
+    immediately, however long the slot is held, and however long the queue
+    timeout is; otherwise a hostile or merely unlucky upload turns into a
+    slow 503 ("server is busy") instead of an instant, specific 400/413.
+    """
+    settings = replace(settings, max_concurrent_jobs=1, queue_seconds=1.0)
+    entered, release = threading.Event(), threading.Event()
+
+    class Slow(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    flask_app = create_app(settings, Slow(settings.weights_dir))
+    holder = threading.Thread(target=lambda: submit(flask_app.test_client()))
+    holder.start()
+    assert entered.wait(timeout=10), "the holding request never reached the slot"
+
+    probe = flask_app.test_client()
+    budget = settings.queue_seconds / 2
+
+    start = time.perf_counter()
+    response = submit(probe, kernel_size="8")
+    assert response.status_code == 400
+    assert time.perf_counter() - start < budget, "a bad parameter must not wait for the slot"
+
+    start = time.perf_counter()
+    bad_file = {"image": (io.BytesIO(b"not an image"), "x.jpg")}
+    response = probe.post("/jobs", data=bad_file, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert time.perf_counter() - start < budget, "a bad file must not wait for the slot"
+
+    start = time.perf_counter()
+    oversized = {"image": (io.BytesIO(b"\x00" * (300 * 1024)), "big.jpg")}
+    response = probe.post("/jobs", data=oversized, content_type="multipart/form-data")
+    assert response.status_code == 413
+    assert time.perf_counter() - start < budget, "an oversized upload must not wait for the slot"
+
+    start = time.perf_counter()
+    response = submit(probe)
+    elapsed = time.perf_counter() - start
+    assert (response.status_code, response.headers["Retry-After"]) == (503, "10")
+    assert elapsed >= settings.queue_seconds, "a valid upload must wait out the full queue timeout"
+
+    release.set()
+    holder.join(timeout=10)
+
+
 def test_emotion_section_only_when_enabled(settings: Settings, app: Flask) -> None:
     off = app.test_client()
     html = off.get(submit(off).headers["Location"]).get_data(as_text=True)
@@ -278,26 +433,74 @@ def test_expired_results_are_404_without_a_new_upload(
     assert not job_dir.exists()
 
 
-def test_old_results_without_segmenter_or_threshold_still_render(
-    client: FlaskClient, settings: Settings
+def test_a_stuck_expired_job_directory_does_not_break_other_requests(
+    client: FlaskClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A result.json written before this branch's fix lacks the two new keys."""
-    store = JobStore(settings.jobs_dir, settings.job_ttl_minutes)
-    job_id = store.create()
-    store.save_result(
-        job_id,
-        {
-            "detector": "Faster R-CNN, MobileNetV3-Large 320 FPN",
-            "detections": [{"label": "person", "confidence": 0.91}],
-            "segments": [],
-            "faces": None,
-            "sections": [],
-            "size": {"width": 64, "height": 48},
-            "seconds": 0.1,
-        },
+    """One expired directory rmtree cannot remove must not turn every request into a 500.
+
+    A held file handle (an antivirus or indexer on Windows, EBUSY/EROFS on Linux) or a
+    PermissionError from another process mid-delete must be swallowed for that one directory;
+    a fresh upload, and reading its page, must both still succeed.
+    """
+    old = submit(client)
+    stuck_id = job_id_of(old)
+    past = time.time() - 2 * 3600
+    os.utime(settings.jobs_dir / stuck_id, (past, past))
+
+    real_rmtree = shutil.rmtree
+
+    def flaky_rmtree(path: object, *args: object, **kwargs: object) -> None:
+        if Path(str(path)).name == stuck_id:
+            raise OSError(errno.ENOTEMPTY, "directory not empty")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("vision_lab.storage.shutil.rmtree", flaky_rmtree)
+
+    fresh = submit(client)
+    assert fresh.status_code == 303
+    assert client.get(fresh.headers["Location"]).status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_the_500_log_redacts_the_job_id_but_keeps_the_route_readable(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """request.path on /jobs/<id> is a capability URL: the full id must not
+    reach the log. But redacting it must not blind the log to which route
+    failed: /jobs/<id> and /jobs/<id>/files/<name> must not read
+    identically, and an unrelated route's path must survive untouched."""
+    location = submit(client).headers["Location"]
+    match = JOB_URL.search(location)
+    assert match is not None
+    job_id = match.group(1)
+
+    def boom(self: object, job_id: str) -> None:
+        raise RuntimeError("corrupted result.json")
+
+    monkeypatch.setattr("vision_lab.storage.JobStore.load_result", boom)
+    with caplog.at_level(logging.ERROR, logger="vision_lab"):
+        page_response = client.get(location)
+    assert page_response.status_code == 500
+    page_log = caplog.text
+    caplog.clear()
+
+    def vanished(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("disk error")
+
+    monkeypatch.setattr("vision_lab.app.send_file", vanished)
+    with caplog.at_level(logging.ERROR, logger="vision_lab"):
+        file_response = client.get(f"{location}/files/original.jpg")
+    assert file_response.status_code == 500
+    file_log = caplog.text
+
+    assert job_id not in page_log, "the full job id (a capability URL) must not reach the log"
+    assert job_id not in file_log
+    redacted = f"/jobs/{job_id[:8]}..."
+    assert redacted in page_log, "the route must stay identifiable after redaction"
+    assert f"{redacted}/files/original.jpg" in file_log
+    assert page_log.splitlines()[0] != file_log.splitlines()[0], (
+        "the two routes must not log identically"
     )
-    response = client.get(f"/jobs/{job_id}")
-    assert response.status_code == 200
 
 
 def test_result_page_shows_the_actual_model_names_and_threshold(client: FlaskClient) -> None:

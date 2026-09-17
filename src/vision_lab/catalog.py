@@ -170,7 +170,8 @@ CATALOG: tuple[Group, ...] = (
             Entry(
                 "fasterrcnn",
                 "Faster R-CNN, MobileNetV3-Large 320 FPN",
-                "Two-stage object detector trained on COCO (91 categories). Images are resized so "
+                "Two-stage object detector trained on COCO (80 object classes; torchvision's label "
+                "list has 91 entries, including unused placeholders and background). Images are resized so "
                 "the short side is 320 px internally, trading small-object accuracy for CPU speed. "
                 "torchvision weights, BSD-3-Clause.",
                 "Ren et al. (2015). Faster R-CNN. NeurIPS. Howard et al. (2019). Searching for MobileNetV3. ICCV.",

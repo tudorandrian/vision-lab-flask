@@ -7,6 +7,7 @@ services:
       - vision-lab-data:/data
     environment:
       VISION_LAB_JOB_TTL_MINUTES: "60"
+    init: true   # tini becomes PID 1 and forwards SIGTERM to the app process
     mem_limit: 2g
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

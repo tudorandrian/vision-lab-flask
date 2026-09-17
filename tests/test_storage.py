@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import errno
 import io
+import logging
 import os
+import shutil
 import struct
 import threading
 import time
@@ -229,6 +232,92 @@ def test_purge_removes_only_expired_jobs(store: JobStore, tmp_path: Path) -> Non
 
 def test_purge_on_a_missing_root_is_a_no_op(tmp_path: Path) -> None:
     assert JobStore(tmp_path / "nowhere", 60).purge_expired() == 0
+
+
+def test_purge_skips_a_directory_rmtree_cannot_remove(
+    store: JobStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One directory an antivirus or another process holds open must not stop the purge.
+
+    rmtree raising something other than FileNotFoundError or PermissionError (a Windows
+    WinError 145, or ENOTEMPTY on Linux) must be swallowed for that one entry, logged once,
+    and never counted as removed; a second, unrelated expired job is still removed and counted.
+    """
+    stuck, fine = store.create(), store.create()
+    two_hours_ago = time.time() - 7200
+    os.utime(tmp_path / "jobs" / stuck, (two_hours_ago, two_hours_ago))
+    os.utime(tmp_path / "jobs" / fine, (two_hours_ago, two_hours_ago))
+
+    real_rmtree = shutil.rmtree
+
+    def flaky_rmtree(path: object, *args: object, **kwargs: object) -> None:
+        if Path(str(path)).name == stuck:
+            raise OSError(errno.ENOTEMPTY, "directory not empty")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("vision_lab.storage.shutil.rmtree", flaky_rmtree)
+
+    with caplog.at_level(logging.WARNING, logger="vision_lab"):
+        removed = store.purge_expired()
+
+    assert removed == 1
+    assert (tmp_path / "jobs" / stuck).exists(), "not counted as removed, and left alone"
+    assert not (tmp_path / "jobs" / fine).exists(), "the unrelated expired job is still removed"
+    assert stuck[:8] in caplog.text
+    assert stuck not in caplog.text, "the full job id (a capability URL) must not reach the log"
+    assert "Traceback" not in caplog.text
+
+
+def test_purge_skips_a_directory_rmtree_denies_permission(
+    store: JobStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    denied, fine = store.create(), store.create()
+    two_hours_ago = time.time() - 7200
+    os.utime(tmp_path / "jobs" / denied, (two_hours_ago, two_hours_ago))
+    os.utime(tmp_path / "jobs" / fine, (two_hours_ago, two_hours_ago))
+
+    real_rmtree = shutil.rmtree
+
+    def flaky_rmtree(path: object, *args: object, **kwargs: object) -> None:
+        if Path(str(path)).name == denied:
+            raise PermissionError(errno.EACCES, "permission denied")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("vision_lab.storage.shutil.rmtree", flaky_rmtree)
+
+    removed = store.purge_expired()
+
+    assert removed == 1
+    assert (tmp_path / "jobs" / denied).exists()
+    assert not (tmp_path / "jobs" / fine).exists()
+
+
+def test_purge_skips_a_directory_whose_stat_raises_os_error(
+    store: JobStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broken, fine = store.create(), store.create()
+    two_hours_ago = time.time() - 7200
+    os.utime(tmp_path / "jobs" / broken, (two_hours_ago, two_hours_ago))
+    os.utime(tmp_path / "jobs" / fine, (two_hours_ago, two_hours_ago))
+
+    real_stat = Path.stat
+
+    def flaky_stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if self.name == broken:
+            raise OSError(errno.EACCES, "permission denied")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    removed = store.purge_expired()
+    monkeypatch.undo()
+
+    assert removed == 1
+    assert (tmp_path / "jobs" / broken).exists()
+    assert not (tmp_path / "jobs" / fine).exists()
 
 
 def test_purge_expired_is_safe_under_concurrent_requests(store: JobStore, tmp_path: Path) -> None:

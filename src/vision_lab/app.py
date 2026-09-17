@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any
 
@@ -17,17 +18,24 @@ from flask import (
     send_file,
     url_for,
 )
+from flask.typing import ResponseReturnValue
 from werkzeug.exceptions import HTTPException
 
 from vision_lab import __version__, catalog, params
 from vision_lab.config import Settings
 from vision_lab.inference import ModelRegistry
 from vision_lab.pipeline import run_job
-from vision_lab.storage import JobStore, UploadError, decode_upload
+from vision_lab.storage import JobStore, UploadError, decode_pending, validate_upload
 
 log = logging.getLogger("vision_lab")
 
-SOURCE_URL = "https://github.com/tudorandrian/vision-lab-flask"
+# A job id in a path is a capability URL (anyone who has it can view that
+# job); redact it in logs, but keep the rest of the path so the route that
+# failed is still identifiable. Truncating the whole path instead (an
+# earlier version of this) was worse on both counts: "/jobs/" alone is 6
+# characters, so an 8-character truncation left only 2 hex characters of
+# the id, and made /jobs/<id> and /jobs/<id>/files/<name> log identically.
+_JOB_ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
 
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -67,7 +75,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
-        return {"app_version": __version__, "source_url": SOURCE_URL}
+        return {"app_version": __version__, "source_url": settings.source_url}
 
     @app.after_request
     def harden(response: Response) -> Response:
@@ -88,17 +96,21 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         return {"status": "ok", "version": __version__}
 
     @app.post("/jobs")
-    def submit() -> Any:
+    def submit() -> ResponseReturnValue:
         upload = request.files.get("image")
         if upload is None or not upload.filename:
             return form_page(400, {"image": "Choose an image to upload."})
         try:
             chosen = params.parse_params(request.form, registry.available_detectors())
-            image = decode_upload(
-                upload.stream, max_pixels=settings.max_pixels, max_side=settings.max_side
-            )
         except params.ParamError as error:
             return form_page(400, error.errors)
+
+        # The cheap header check (format, dimensions) runs before the slot, so
+        # a bad file returns 400 immediately, however busy the server is; only
+        # the expensive part (a full pixel decode, which can use hundreds of
+        # MB for a large photo) waits for the slot, below.
+        try:
+            pending = validate_upload(upload.stream, max_pixels=settings.max_pixels)
         except UploadError as error:
             return form_page(400, {"image": str(error)})
 
@@ -114,6 +126,10 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             response.headers["Retry-After"] = "10"
             return response
         try:
+            try:
+                image = decode_pending(pending, max_side=settings.max_side)
+            except UploadError as error:
+                return form_page(400, {"image": str(error)})
             store.purge_expired()
             job_id = store.create()
             try:
@@ -126,7 +142,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         return redirect(url_for("show_job", job_id=job_id), code=303)
 
     @app.get("/jobs/<job_id>")
-    def show_job(job_id: str) -> str:
+    def show_job(job_id: str) -> Response:
         # A job past its TTL must read back as gone even if nobody has uploaded
         # since, so this cheap directory scan runs on every read too.
         store.purge_expired()
@@ -134,9 +150,16 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             result = store.load_result(job_id)
         except KeyError:
             abort(404)
-        return render_template(
+        page = render_template(
             "result.html", job_id=job_id, result=result, ttl=settings.job_ttl_minutes
         )
+        # A result page must not survive in a shared cache past the job's
+        # TTL: once purged, a fresh request must always reach this handler
+        # and get a 404, not a stale cached copy. Its images may still keep
+        # the short private cache set on job_file below.
+        response = make_response(page)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/jobs/<job_id>/files/<name>")
     def job_file(job_id: str, name: str) -> Response:
@@ -176,7 +199,8 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.errorhandler(Exception)
     def unexpected(error: Exception) -> tuple[str, int]:
-        log.exception("unhandled error while serving %s", request.path)
+        redacted_path = _JOB_ID_IN_PATH.sub(lambda m: m.group()[:8] + "...", request.path)
+        log.exception("unhandled error while serving %s", redacted_path)
         message = "Something went wrong while processing the image. Nothing was kept."
         return render_template("error.html", status=500, message=message), 500
 

@@ -4,11 +4,27 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
+import sys
+from types import FrameType
 
 from waitress import serve
 
 from vision_lab.app import create_app
-from vision_lab.config import Settings
+from vision_lab.config import Settings, SettingsError
+
+
+def _raise_keyboard_interrupt(signum: int, frame: FrameType | None) -> None:
+    """docker stop, compose down and an orchestrator rollout send SIGTERM.
+
+    Python installs a handler for SIGINT only; a process that is PID 1 in a
+    container gets no default action for SIGTERM, so it is otherwise ignored
+    until the grace period ends and the container is killed (exit 137).
+    waitress's own run loop already shuts down cleanly on KeyboardInterrupt
+    (server.run() catches it and calls server.close()), so turn one into
+    the other instead of duplicating that shutdown path here.
+    """
+    raise KeyboardInterrupt("terminated by SIGTERM")
 
 
 def main() -> None:
@@ -18,10 +34,17 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings = Settings.from_env()
+    try:
+        settings = Settings.from_env()
+    except SettingsError as error:
+        # A clear, one-line message naming the offending variable, not a
+        # traceback: this runs before any request is served.
+        print(f"vision-lab: invalid configuration: {error}", file=sys.stderr)
+        raise SystemExit(2) from error
     logging.getLogger("vision_lab").info(
         "serving on http://%s:%d, data in %s", args.host, args.port, settings.data_dir
     )
+    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
     # One inference runs at a time (see Settings.max_concurrent_jobs); the extra
     # threads keep pages, images and the busy response fast while it does.
     #
@@ -30,14 +53,23 @@ def main() -> None:
     # so an oversized upload would otherwise be written to disk first. Bounding
     # it here at the upload limit plus a small margin (multipart framing and the
     # other form fields) makes waitress itself refuse it, cheaply.
-    serve(
-        create_app(settings),
-        host=args.host,
-        port=args.port,
-        threads=8,
-        ident="vision-lab",
-        max_request_body_size=settings.max_upload_bytes + 1024 * 1024,
-    )
+    try:
+        serve(
+            create_app(settings),
+            host=args.host,
+            port=args.port,
+            threads=8,
+            ident="vision-lab",
+            max_request_body_size=settings.max_upload_bytes + 1024 * 1024,
+        )
+    except KeyboardInterrupt:
+        # waitress's own run loop already catches KeyboardInterrupt and shuts
+        # down cleanly (see _raise_keyboard_interrupt above), so this only
+        # fires for a SIGTERM that arrives before serve() reaches that loop,
+        # for example while create_app() is still building the Flask app.
+        # Without this, that KeyboardInterrupt would escape main() as a raw
+        # traceback instead of the same quiet shutdown as the normal case.
+        logging.getLogger("vision_lab").info("shutting down")
 
 
 if __name__ == "__main__":

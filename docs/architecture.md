@@ -6,10 +6,20 @@
 POST /jobs  ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
             ->  no image field             request.files.get("image") is empty              -> 400
             ->  params.parse_params        every field validated, all errors at once         -> 400
-            ->  storage.decode_upload      format, pixel limit, re-encode, downscale         -> 400
+            ->  storage.validate_upload    header only: format allow-list (MPO included),
+                                            pixel limit from the header                      -> 400
             ->  inference slot             bounded wait, then give up                        -> 503 + Retry-After, the HTML error page
+            ->  storage.decode_pending     draft decode, EXIF orientation, colour
+                                            conversion, downscale                             -> 400
             ->  purge + pipeline.run_job   expired jobs removed, then ops and models run      -> 500, job discarded, on failure
             ->  303 See Other              /jobs/<id>
+
+Every check up to and including validate_upload runs before the inference slot is acquired, so an
+invalid upload (wrong field, bad parameters, an unreadable file, one that fails the header check)
+never has to wait for a busy server; only the two things that can be expensive, decoding and
+running the models, happen inside the slot. `decode_upload` (validate_upload then decode_pending
+in one call) survives as a convenience wrapper used by callers, and the storage tests, that have
+no reason to split the cheap check from the expensive decode.
 
 GET /jobs/<id>               purges expired jobs, then reads result.json and renders; models never run on a GET
 GET /jobs/<id>/files/<name>  purges expired jobs, checks id and name against strict patterns, then serves one image
@@ -53,9 +63,12 @@ once.
 
 **AGPL-3.0-or-later.** The optional YOLO backend is AGPL-3.0, and this code is written to work
 with it, so the whole project takes the same licence instead of arguing about boundaries. The
-author holds the copyright of everything else here and can relicense that code for another use;
-the Ultralytics dependency would then need to be left out or licensed commercially. Section 13 is
-met by the source link in the footer of every page.
+author holds the copyright of the code and documents written for this project and can relicense
+that code for another use; the Ultralytics dependency would then need to be left out or licensed
+commercially. The source link in the footer of every page is the way this application offers its
+source, as section 13 asks of modified versions: it points at `VISION_LAB_SOURCE_URL` (default
+this repository), which whoever modifies and deploys their own version must change to their own
+source, since the upstream link cannot do that for them.
 
 **Results are files, not recomputation.** The coursework ran every model again on each page view
 and let the query string choose the file to process. A job now runs once, writes `result.json`,
@@ -75,7 +88,24 @@ so load degrades predictably instead of crashing.
 **waitress bounds the request body.** waitress defaults its own request body limit to 1 GB and
 buffers the whole body before Flask's `MAX_CONTENT_LENGTH` can answer 413. `__main__.py` sets
 `max_request_body_size` to the upload limit plus a 1 MiB margin for multipart framing and the
-other form fields, so an oversized upload is refused before it is buffered, not after.
+other form fields, so an oversized upload is refused before it is buffered, not after. A request
+body larger than that margin is refused by waitress itself, before Flask's own request handling
+runs, so the client sees waitress's own plain-text error page instead of this application's styled
+one. This is a deliberate trade-off: waitress must be able to reject a wildly oversized body
+cheaply, without buffering it first, and the only way to do that is to answer before the WSGI
+application, and its error handlers, ever run.
+
+**DeepLabV3 runs at the image's own size, not the published 520 px transform.** The published
+transform for `COCO_WITH_VOC_LABELS_V1` resizes the input's short side to 520 px before inference.
+`DeepLabSegmenter.segment` instead feeds the image at whatever size it already is, up to
+`VISION_LAB_MAX_SIDE` (1600 by default), so the class map comes out at the resolution the rest of
+the pipeline is already working with, instead of a coarse map that would need to be upsampled onto
+the original image. Measured on the reference machine in docs/testing.md: 0.46 s and 504 MB peak
+working set at 512x512, against 3.91 s and 952 MB peak at 1600x1600, the configured maximum. On the
+sample image this does not obviously cost accuracy (the person's share of the frame is 44.7 % at
+native size against 47.9 % with the official 520 px transform), but the latency and memory cost at
+the configured maximum are real and are not evaluated beyond this one image; see
+[docs/models.md](models.md) for the model card.
 
 **DeepFace weights under the data directory.** DeepFace reads the `DEEPFACE_HOME` environment
 variable at import time and stores its weights under `<home>/.deepface/weights`. `inference.py`
