@@ -41,6 +41,7 @@ def test_environment_overrides(tmp_path: Path) -> None:
         ({"VISION_LAB_MAX_SIDE": "1"}, "VISION_LAB_MAX_SIDE"),
         ({"VISION_LAB_QUEUE_SECONDS": "nan"}, "VISION_LAB_QUEUE_SECONDS"),
         ({"VISION_LAB_QUEUE_SECONDS": "-1"}, "VISION_LAB_QUEUE_SECONDS"),
+        ({"VISION_LAB_QUEUE_SECONDS": "soon"}, "VISION_LAB_QUEUE_SECONDS"),
     ],
 )
 def test_invalid_settings_name_the_variable_and_are_rejected_at_start_up(

@@ -266,7 +266,8 @@ def test_purge_skips_a_directory_rmtree_cannot_remove(
     assert removed == 1
     assert (tmp_path / "jobs" / stuck).exists(), "not counted as removed, and left alone"
     assert not (tmp_path / "jobs" / fine).exists(), "the unrelated expired job is still removed"
-    assert stuck in caplog.text
+    assert stuck[:8] in caplog.text
+    assert stuck not in caplog.text, "the full job id (a capability URL) must not reach the log"
     assert "Traceback" not in caplog.text
 
 

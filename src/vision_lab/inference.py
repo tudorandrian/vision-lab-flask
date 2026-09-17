@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar, cast
 
 import cv2
 
@@ -74,7 +74,11 @@ class TorchvisionDetector:
         )
 
         torch.hub.set_dir(str(weights_dir))
-        weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
+        # Pinned rather than .DEFAULT, which is defined to track "the best
+        # available weights": an upstream torchvision upgrade could otherwise
+        # change detection results with no change to this file. This is the
+        # weights enum .DEFAULT currently resolves to.
+        weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.COCO_V1
         self._labels: Sequence[str] = weights.meta["categories"]
         self._model = fasterrcnn_mobilenet_v3_large_320_fpn(
             weights=weights, box_score_thresh=score_threshold
@@ -85,15 +89,16 @@ class TorchvisionDetector:
 
         with torch.inference_mode():
             output = self._model([_to_tensor(image)])[0]
-        return [
-            Detection(self._labels[int(label)], float(score), tuple(int(v) for v in box))  # type: ignore[arg-type]
-            for box, label, score in zip(
-                output["boxes"].tolist(),
-                output["labels"].tolist(),
-                output["scores"].tolist(),
-                strict=True,
-            )
-        ]
+        detections = []
+        for box, label, score in zip(
+            output["boxes"].tolist(),
+            output["labels"].tolist(),
+            output["scores"].tolist(),
+            strict=True,
+        ):
+            x1, y1, x2, y2 = (int(v) for v in box)
+            detections.append(Detection(self._labels[int(label)], float(score), (x1, y1, x2, y2)))
+        return detections
 
 
 class YoloDetector:
@@ -129,15 +134,16 @@ class YoloDetector:
         with self._lock:
             result = self._model.predict(image, conf=self._threshold, verbose=False)[0]
         names = result.names
-        return [
-            Detection(names[int(label)], float(score), tuple(int(v) for v in box))  # type: ignore[arg-type]
-            for box, label, score in zip(
-                result.boxes.xyxy.tolist(),
-                result.boxes.cls.tolist(),
-                result.boxes.conf.tolist(),
-                strict=True,
-            )
-        ]
+        detections = []
+        for box, label, score in zip(
+            result.boxes.xyxy.tolist(),
+            result.boxes.cls.tolist(),
+            result.boxes.conf.tolist(),
+            strict=True,
+        ):
+            x1, y1, x2, y2 = (int(v) for v in box)
+            detections.append(Detection(names[int(label)], float(score), (x1, y1, x2, y2)))
+        return detections
 
 
 class DeepLabSegmenter:
@@ -151,7 +157,9 @@ class DeepLabSegmenter:
         )
 
         torch.hub.set_dir(str(weights_dir))
-        weights = DeepLabV3_MobileNet_V3_Large_Weights.DEFAULT
+        # Pinned rather than .DEFAULT, for the same reason as the detector
+        # above: this is what .DEFAULT currently resolves to.
+        weights = DeepLabV3_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1
         self.class_names: Sequence[str] = weights.meta["categories"]
         self._model = deeplabv3_mobilenet_v3_large(weights=weights).eval()
         self._mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
@@ -200,6 +208,9 @@ def _installed(module: str) -> bool:
     return importlib.util.find_spec(module) is not None
 
 
+T = TypeVar("T")
+
+
 @dataclass
 class ModelRegistry:
     """Builds each model at most once and hands out the shared instance."""
@@ -218,24 +229,27 @@ class ModelRegistry:
     def emotion_available(self) -> bool:
         return self.enable_emotion and _installed("deepface")
 
-    def _get(self, key: str, build: Callable[[], Any]) -> Any:
+    def _get(self, key: str, build: Callable[[], T]) -> T:
         with self._lock:
             if key not in self._cache:
                 self.weights_dir.mkdir(parents=True, exist_ok=True)
                 self._cache[key] = build()
-            return self._cache[key]
+            # The cache is keyed by model name and only ever holds what build()
+            # returned for that key, so this is a real invariant, not a lie to
+            # the type checker: build() itself is what fixes T at each call site.
+            return cast(T, self._cache[key])
 
     def detector(self, name: str) -> Detector:
         if name not in self.available_detectors():
             raise KeyError(name)
         if name == "fasterrcnn":
-            return self._get(name, lambda: TorchvisionDetector(self.weights_dir))  # type: ignore[no-any-return]
-        return self._get(name, lambda: YoloDetector(self.weights_dir, name))  # type: ignore[no-any-return]
+            return self._get(name, lambda: TorchvisionDetector(self.weights_dir))
+        return self._get(name, lambda: YoloDetector(self.weights_dir, name))
 
     def segmenter(self) -> Segmenter:
-        return self._get("deeplabv3", lambda: DeepLabSegmenter(self.weights_dir))  # type: ignore[no-any-return]
+        return self._get("deeplabv3", lambda: DeepLabSegmenter(self.weights_dir))
 
     def emotion_analyzer(self) -> EmotionAnalyzer | None:
         if not self.emotion_available():
             return None
-        return self._get("deepface", lambda: DeepFaceEmotionAnalyzer(self.weights_dir))  # type: ignore[no-any-return]
+        return self._get("deepface", lambda: DeepFaceEmotionAnalyzer(self.weights_dir))

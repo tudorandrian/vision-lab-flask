@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
+from vision_lab.config import Settings
 from vision_lab.inference import ModelRegistry
 
 pytestmark = pytest.mark.models
@@ -15,9 +16,27 @@ pytestmark = pytest.mark.models
 SAMPLE = Path(__file__).parent.parent / "samples" / "astronaut.jpg"
 
 
+def _weights_dir() -> Path:
+    """Where the real registry below stores weights.
+
+    Reads VISION_LAB_DATA_DIR the same way the application does, so setting
+    it to reuse a weights cache actually works for this test module too,
+    instead of always resolving ./instance/weights against the working
+    directory regardless of that variable.
+    """
+    return Settings.from_env().weights_dir
+
+
+def test_weights_dir_honours_vision_lab_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VISION_LAB_DATA_DIR", str(tmp_path))
+    assert _weights_dir() == tmp_path.resolve() / "weights"
+
+
 @pytest.fixture(scope="module")
 def registry() -> ModelRegistry:
-    return ModelRegistry(Path("instance/weights").resolve())
+    return ModelRegistry(_weights_dir())
 
 
 @pytest.fixture(scope="module")

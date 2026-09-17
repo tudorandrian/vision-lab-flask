@@ -17,6 +17,7 @@ from flask import (
     send_file,
     url_for,
 )
+from flask.typing import ResponseReturnValue
 from werkzeug.exceptions import HTTPException
 
 from vision_lab import __version__, catalog, params
@@ -88,7 +89,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         return {"status": "ok", "version": __version__}
 
     @app.post("/jobs")
-    def submit() -> Any:
+    def submit() -> ResponseReturnValue:
         upload = request.files.get("image")
         if upload is None or not upload.filename:
             return form_page(400, {"image": "Choose an image to upload."})
@@ -130,7 +131,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         return redirect(url_for("show_job", job_id=job_id), code=303)
 
     @app.get("/jobs/<job_id>")
-    def show_job(job_id: str) -> str:
+    def show_job(job_id: str) -> Response:
         # A job past its TTL must read back as gone even if nobody has uploaded
         # since, so this cheap directory scan runs on every read too.
         store.purge_expired()
@@ -138,9 +139,16 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             result = store.load_result(job_id)
         except KeyError:
             abort(404)
-        return render_template(
+        page = render_template(
             "result.html", job_id=job_id, result=result, ttl=settings.job_ttl_minutes
         )
+        # A result page must not survive in a shared cache past the job's
+        # TTL: once purged, a fresh request must always reach this handler
+        # and get a 404, not a stale cached copy. Its images may still keep
+        # the short private cache set on job_file below.
+        response = make_response(page)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/jobs/<job_id>/files/<name>")
     def job_file(job_id: str, name: str) -> Response:
@@ -180,7 +188,9 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.errorhandler(Exception)
     def unexpected(error: Exception) -> tuple[str, int]:
-        log.exception("unhandled error while serving %s", request.path)
+        # A path under /jobs/<id> is a capability URL; only a short prefix of
+        # it belongs in the server log, not the full id.
+        log.exception("unhandled error while serving %s...", request.path[:8])
         message = "Something went wrong while processing the image. Nothing was kept."
         return render_template("error.html", status=500, message=message), 500
 

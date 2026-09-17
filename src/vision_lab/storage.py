@@ -3,7 +3,10 @@
 The client never chooses a path: a job is a random UUID4 (122 random bits), files
 inside it have fixed names, and both are checked against strict patterns before
 any disk access. Uploaded pixels are re-encoded, so EXIF data (GPS position,
-device serial numbers) never reaches the disk.
+device serial numbers) is never stored in the job directory. It may still be
+spooled to a temporary file elsewhere on disk while the request body is
+received: waitress and werkzeug spool large uploads to a temp file before this
+module ever sees them.
 """
 
 from __future__ import annotations
@@ -167,7 +170,7 @@ class JobStore:
                 except FileNotFoundError:
                     continue  # already gone
                 except OSError:
-                    _logger.warning("could not check job directory %s", entry.name)
+                    _logger.warning("could not check job directory %s...", entry.name[:8])
                     continue
                 if not is_expired:
                     continue
@@ -179,7 +182,10 @@ class JobStore:
                     # Another process mid-delete (PermissionError), or a handle held open
                     # by something else (an antivirus or indexer, EBUSY, WinError 145).
                     # One stuck directory must not stop the purge or the request it runs on.
-                    _logger.warning("could not remove job directory %s", entry.name)
+                    # Only a short prefix of the job id is logged: the full id is a
+                    # capability URL (anyone who has it can view or was meant to view
+                    # that job), so it should not sit in full in a log file.
+                    _logger.warning("could not remove job directory %s...", entry.name[:8])
                     continue
                 removed += 1
         return removed

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import io
+import logging
 import os
 import re
 import shutil
@@ -200,6 +201,18 @@ def test_security_headers_on_every_response(client: FlaskClient) -> None:
     assert "Set-Cookie" not in client.get("/").headers
 
 
+def test_result_page_is_never_cached_but_its_images_may_be(client: FlaskClient) -> None:
+    """A shared browser cache must not keep a result page past its TTL: once
+    the job is purged, the page must be re-fetched, not served stale from a
+    cache. The images it links to may still keep a short private cache."""
+    location = submit(client).headers["Location"]
+    page = client.get(location)
+    assert page.headers["Cache-Control"] == "no-store"
+    image = client.get(f"{location}/files/original.jpg")
+    assert image.headers["Cache-Control"] == "private, max-age=300"
+    image.close()
+
+
 def test_pages_make_no_third_party_requests(client: FlaskClient) -> None:
     for path in ["/", "/algorithms", submit(client).headers["Location"]]:
         html = client.get(path).get_data(as_text=True)
@@ -364,6 +377,27 @@ def test_a_stuck_expired_job_directory_does_not_break_other_requests(
     assert fresh.status_code == 303
     assert client.get(fresh.headers["Location"]).status_code == 200
     assert client.get("/").status_code == 200
+
+
+def test_the_500_log_truncates_the_job_id_in_the_request_path(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """request.path on /jobs/<id> is a capability URL; only a short prefix
+    belongs in the server log, not the full id."""
+    location = submit(client).headers["Location"]
+    match = JOB_URL.search(location)
+    assert match is not None
+    job_id = match.group(1)
+
+    def boom(self: object, job_id: str) -> None:
+        raise RuntimeError("corrupted result.json")
+
+    monkeypatch.setattr("vision_lab.storage.JobStore.load_result", boom)
+    with caplog.at_level(logging.ERROR, logger="vision_lab"):
+        response = client.get(location)
+    assert response.status_code == 500
+    assert location[:8] in caplog.text
+    assert job_id not in caplog.text, "the full job id (a capability URL) must not reach the log"
 
 
 def test_result_page_shows_the_actual_model_names_and_threshold(client: FlaskClient) -> None:
