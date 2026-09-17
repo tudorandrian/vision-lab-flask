@@ -24,7 +24,7 @@ from vision_lab import __version__, catalog, params
 from vision_lab.config import Settings
 from vision_lab.inference import ModelRegistry
 from vision_lab.pipeline import run_job
-from vision_lab.storage import JobStore, UploadError, decode_upload
+from vision_lab.storage import JobStore, UploadError, decode_pending, validate_upload
 
 log = logging.getLogger("vision_lab")
 
@@ -96,11 +96,17 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         except params.ParamError as error:
             return form_page(400, error.errors)
 
+        # The cheap header check (format, dimensions) runs before the slot, so
+        # a bad file returns 400 immediately, however busy the server is; only
+        # the expensive part (a full pixel decode, which can use hundreds of
+        # MB for a large photo) waits for the slot, below.
+        try:
+            pending = validate_upload(upload.stream, max_pixels=settings.max_pixels)
+        except UploadError as error:
+            return form_page(400, {"image": str(error)})
+
         # Wait briefly for the inference slot, then give up: a bounded queue keeps
         # memory and response times predictable however many uploads arrive at once.
-        # The slot is acquired before decoding, not after: decoding a large image
-        # can use hundreds of MB, and every waitress thread could otherwise decode
-        # a separate upload at the same time regardless of this limit.
         if not slots.acquire(timeout=settings.queue_seconds):
             page = render_template(
                 "error.html",
@@ -112,9 +118,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             return response
         try:
             try:
-                image = decode_upload(
-                    upload.stream, max_pixels=settings.max_pixels, max_side=settings.max_side
-                )
+                image = decode_pending(pending, max_side=settings.max_side)
             except UploadError as error:
                 return form_page(400, {"image": str(error)})
             store.purge_expired()

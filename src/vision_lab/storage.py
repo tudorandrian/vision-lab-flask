@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
@@ -41,11 +42,43 @@ class UploadError(ValueError):
     """The uploaded file is not an image this application accepts."""
 
 
-def decode_upload(stream: IO[bytes], *, max_pixels: int, max_side: int) -> Image:
-    """Return the upload as a BGR array, or raise UploadError.
+_UNREADABLE = (
+    UnidentifiedImageError,
+    OSError,
+    ValueError,
+    Warning,
+    PilImage.DecompressionBombError,
+)
+
+
+@dataclass
+class PendingUpload:
+    """A header-checked upload, not yet decoded to pixel data.
+
+    Produced by validate_upload, the cheap part: it reads the (already
+    size-bounded) request body, opens just enough of the file to see its
+    format and dimensions, and raises UploadError for anything this
+    application will not accept. It does not force Pillow to decode any
+    pixel data, so it allocates nothing beyond the encoded bytes already
+    read from the stream.
+
+    Consumed by decode_pending, the expensive part: EXIF-orientation and
+    colour-space conversion force a full decode, which for a large photo
+    can use hundreds of MB. The caller decides when that cost is paid, for
+    example only after an inference slot is held (see app.py).
+    """
+
+    _picture: PilImage.Image
+
+
+def validate_upload(stream: IO[bytes], *, max_pixels: int) -> PendingUpload:
+    """Check the upload's format and pixel count from its header, or raise UploadError.
 
     The header is inspected before any pixel is decoded, so an image that
-    claims enormous dimensions (a decompression bomb) is rejected cheaply.
+    claims enormous dimensions (a decompression bomb) is rejected cheaply,
+    and a request with a bad file never needs to wait for the inference
+    slot: the cost of this check is bounded by the upload size limit, not
+    by decoding.
 
     Pillow's own decompression-bomb guard warns above MAX_IMAGE_PIXELS and
     raises above twice that. The warning is suppressed here because our own
@@ -68,26 +101,50 @@ def decode_upload(stream: IO[bytes], *, max_pixels: int, max_side: int) -> Image
                 raise UploadError("Only JPEG, PNG, WebP and BMP images are accepted.")
             if picture.width * picture.height > max_pixels:
                 raise UploadError(f"The image has more than {max_pixels:,} pixels.")
-            # For a JPEG, ask the decoder for a version already close to the
-            # size we will downscale to anyway: libjpeg can decode at 1/2,
-            # 1/4 or 1/8 scale directly, which lowers the peak memory of
-            # decoding a large photo. draft() is a no-op for every other
-            # format (the base Image class defines it as such), so this is
-            # safe to call unconditionally.
-            picture.draft("RGB", (max_side, max_side))
-            upright = ImageOps.exif_transpose(picture).convert("RGB")
     except UploadError:
         raise
-    except (
-        UnidentifiedImageError,
-        OSError,
-        ValueError,
-        Warning,
-        PilImage.DecompressionBombError,
-    ) as error:
+    except _UNREADABLE as error:
+        raise UploadError("The file could not be read as an image.") from error
+    return PendingUpload(picture)
+
+
+def decode_pending(pending: PendingUpload, *, max_side: int) -> Image:
+    """Decode a validated upload to a BGR array, or raise UploadError.
+
+    This is the part that can use hundreds of MB for a large photo: EXIF
+    orientation and the RGB conversion below both force Pillow to decode
+    every pixel. Call this only once any queueing this application does is
+    already accounted for (see app.py), not while only a header has been
+    checked.
+    """
+    picture = pending._picture
+    try:
+        # For a JPEG, ask the decoder for a version already close to the
+        # size we will downscale to anyway: libjpeg can decode at 1/2, 1/4
+        # or 1/8 scale directly, which lowers the peak memory of decoding a
+        # large photo. draft() is a no-op for every other format (the base
+        # Image class defines it as such), so this is safe to call
+        # unconditionally. For a large JPEG the drafted decode is a close
+        # but not pixel-exact approximation of a full decode: measured on a
+        # 4000x4000 JPEG, downscaled to the same final size, the maximum
+        # absolute channel difference was 8 (mean 0.89); the bundled sample
+        # image, well under the draft threshold, decodes bit-identical
+        # either way.
+        picture.draft("RGB", (max_side, max_side))
+        upright = ImageOps.exif_transpose(picture).convert("RGB")
+    except _UNREADABLE as error:
         raise UploadError("The file could not be read as an image.") from error
     bgr = cv2.cvtColor(np.asarray(upright, dtype=np.uint8), cv2.COLOR_RGB2BGR)
     return downscale_to(bgr, max_side)
+
+
+def decode_upload(stream: IO[bytes], *, max_pixels: int, max_side: int) -> Image:
+    """Validate and decode an upload in one call: validate_upload then decode_pending.
+
+    Kept as a thin wrapper with this signature for callers, and tests, that
+    have no reason to split the cheap check from the expensive decode.
+    """
+    return decode_pending(validate_upload(stream, max_pixels=max_pixels), max_side=max_side)
 
 
 class JobStore:

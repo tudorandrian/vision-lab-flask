@@ -127,6 +127,21 @@ def test_bad_files_give_400(client: FlaskClient, payload: bytes) -> None:
     assert response.status_code == 400
 
 
+def test_a_file_that_passes_header_validation_but_fails_to_decode_is_400(
+    client: FlaskClient,
+) -> None:
+    """A truncated JPEG has a valid header (format, width, height all parse)
+    but fails once the pixel data itself is actually decoded, which only
+    happens inside the slot; this must still be a 400, not a 500."""
+    buffer = io.BytesIO()
+    PilImage.new("RGB", (200, 200)).save(buffer, format="JPEG")
+    truncated = buffer.getvalue()[: len(buffer.getvalue()) // 2]
+    data = {"image": (io.BytesIO(truncated), "x.jpg")}
+    response = client.post("/jobs", data=data, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert "could not be read" in response.get_data(as_text=True)
+
+
 def test_missing_file_gives_400(client: FlaskClient) -> None:
     assert client.post("/jobs", data={}).status_code == 400
 
@@ -276,14 +291,14 @@ def test_decoding_waits_for_the_inference_slot(
     inference slot is acquired, or every waitress thread could decode at once.
     """
     settings = replace(settings, max_concurrent_jobs=1, queue_seconds=5.0)
-    real_decode = app_module.decode_upload
+    real_decode = app_module.decode_pending
     active = 0
     overlapped = False
     lock = threading.Lock()
     entered = threading.Event()
     release = threading.Event()
 
-    def fake_decode(stream: object, **kwargs: object) -> Any:
+    def fake_decode(pending: object, **kwargs: object) -> Any:
         nonlocal active, overlapped
         with lock:
             active += 1
@@ -292,12 +307,12 @@ def test_decoding_waits_for_the_inference_slot(
         entered.set()
         release.wait(timeout=10)
         try:
-            return real_decode(stream, **kwargs)
+            return real_decode(pending, **kwargs)
         finally:
             with lock:
                 active -= 1
 
-    monkeypatch.setattr("vision_lab.app.decode_upload", fake_decode)
+    monkeypatch.setattr("vision_lab.app.decode_pending", fake_decode)
     flask_app = create_app(settings, FakeRegistry(settings.weights_dir))
     results: list[int] = []
     lock2 = threading.Lock()
@@ -322,6 +337,58 @@ def test_decoding_waits_for_the_inference_slot(
 
     assert not overlapped, "two decodes ran at the same time"
     assert sorted(results) == [303, 303]
+
+
+def test_pre_slot_checks_stay_fast_while_the_slot_is_held(settings: Settings) -> None:
+    """Only a genuinely valid upload should ever wait for a busy slot.
+
+    A bad parameter, a bad file, and an oversized upload must all fail
+    immediately, however long the slot is held, and however long the queue
+    timeout is; otherwise a hostile or merely unlucky upload turns into a
+    slow 503 ("server is busy") instead of an instant, specific 400/413.
+    """
+    settings = replace(settings, max_concurrent_jobs=1, queue_seconds=1.0)
+    entered, release = threading.Event(), threading.Event()
+
+    class Slow(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    flask_app = create_app(settings, Slow(settings.weights_dir))
+    holder = threading.Thread(target=lambda: submit(flask_app.test_client()))
+    holder.start()
+    assert entered.wait(timeout=10), "the holding request never reached the slot"
+
+    probe = flask_app.test_client()
+    budget = settings.queue_seconds / 2
+
+    start = time.perf_counter()
+    response = submit(probe, kernel_size="8")
+    assert response.status_code == 400
+    assert time.perf_counter() - start < budget, "a bad parameter must not wait for the slot"
+
+    start = time.perf_counter()
+    bad_file = {"image": (io.BytesIO(b"not an image"), "x.jpg")}
+    response = probe.post("/jobs", data=bad_file, content_type="multipart/form-data")
+    assert response.status_code == 400
+    assert time.perf_counter() - start < budget, "a bad file must not wait for the slot"
+
+    start = time.perf_counter()
+    oversized = {"image": (io.BytesIO(b"\x00" * (300 * 1024)), "big.jpg")}
+    response = probe.post("/jobs", data=oversized, content_type="multipart/form-data")
+    assert response.status_code == 413
+    assert time.perf_counter() - start < budget, "an oversized upload must not wait for the slot"
+
+    start = time.perf_counter()
+    response = submit(probe)
+    elapsed = time.perf_counter() - start
+    assert (response.status_code, response.headers["Retry-After"]) == (503, "10")
+    assert elapsed >= settings.queue_seconds, "a valid upload must wait out the full queue timeout"
+
+    release.set()
+    holder.join(timeout=10)
 
 
 def test_emotion_section_only_when_enabled(settings: Settings, app: Flask) -> None:
