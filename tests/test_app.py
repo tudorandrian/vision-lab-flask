@@ -220,6 +220,16 @@ def test_pages_make_no_third_party_requests(client: FlaskClient) -> None:
         assert external == ["https://github.com/tudorandrian/vision-lab-flask"]
 
 
+def test_footer_source_link_follows_the_configured_source_url(settings: Settings) -> None:
+    """An operator who modifies and deploys this application must be able to point
+    section 13's source link at their own fork, not the upstream repository."""
+    forked = replace(settings, source_url="https://example.invalid/my-fork")
+    flask_app = create_app(forked, FakeRegistry(forked.weights_dir))
+    html = flask_app.test_client().get("/").get_data(as_text=True)
+    assert 'href="https://example.invalid/my-fork"' in html
+    assert "https://github.com/tudorandrian/vision-lab-flask" not in html
+
+
 def test_model_failure_gives_a_500_page_without_details_and_cleans_up(
     settings: Settings,
 ) -> None:

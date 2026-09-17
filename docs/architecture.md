@@ -53,9 +53,12 @@ once.
 
 **AGPL-3.0-or-later.** The optional YOLO backend is AGPL-3.0, and this code is written to work
 with it, so the whole project takes the same licence instead of arguing about boundaries. The
-author holds the copyright of everything else here and can relicense that code for another use;
-the Ultralytics dependency would then need to be left out or licensed commercially. Section 13 is
-met by the source link in the footer of every page.
+author holds the copyright of the code and documents written for this project and can relicense
+that code for another use; the Ultralytics dependency would then need to be left out or licensed
+commercially. The source link in the footer of every page is the way this application offers its
+source, as section 13 asks of modified versions: it points at `VISION_LAB_SOURCE_URL` (default
+this repository), which whoever modifies and deploys their own version must change to their own
+source, since the upstream link cannot do that for them.
 
 **Results are files, not recomputation.** The coursework ran every model again on each page view
 and let the query string choose the file to process. A job now runs once, writes `result.json`,

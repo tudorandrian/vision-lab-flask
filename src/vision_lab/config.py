@@ -10,6 +10,12 @@ from pathlib import Path
 
 _TRUE = {"1", "true", "yes", "on"}
 
+# The footer of every page links here, as section 13 of the AGPL asks of a
+# modified version run over a network. Anyone who modifies this application
+# and deploys it must point this at their own source, not the upstream
+# repository: set VISION_LAB_SOURCE_URL rather than editing this default.
+DEFAULT_SOURCE_URL = "https://github.com/tudorandrian/vision-lab-flask"
+
 
 class SettingsError(ValueError):
     """An environment variable is missing a sane value: bad type or out of range.
@@ -58,6 +64,7 @@ class Settings:
     max_concurrent_jobs: int = 1
     queue_seconds: float = 15.0
     enable_emotion: bool = False
+    source_url: str = DEFAULT_SOURCE_URL
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -81,6 +88,7 @@ class Settings:
             max_concurrent_jobs=_int(source, "VISION_LAB_MAX_CONCURRENT_JOBS", "1", minimum=1),
             queue_seconds=_float(source, "VISION_LAB_QUEUE_SECONDS", "15", minimum=0),
             enable_emotion=source.get("VISION_LAB_ENABLE_EMOTION", "0").strip().lower() in _TRUE,
+            source_url=source.get("VISION_LAB_SOURCE_URL", DEFAULT_SOURCE_URL),
         )
 
     @property

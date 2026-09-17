@@ -28,8 +28,6 @@ from vision_lab.storage import JobStore, UploadError, decode_upload
 
 log = logging.getLogger("vision_lab")
 
-SOURCE_URL = "https://github.com/tudorandrian/vision-lab-flask"
-
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'none'; img-src 'self' data:; object-src 'none'; "
@@ -68,7 +66,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
-        return {"app_version": __version__, "source_url": SOURCE_URL}
+        return {"app_version": __version__, "source_url": settings.source_url}
 
     @app.after_request
     def harden(response: Response) -> Response:

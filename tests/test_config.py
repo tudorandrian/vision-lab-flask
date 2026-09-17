@@ -13,6 +13,15 @@ def test_defaults_are_conservative() -> None:
     assert settings.max_concurrent_jobs == 1
     assert settings.enable_emotion is False
     assert settings.data_dir.is_absolute()
+    assert settings.source_url == "https://github.com/tudorandrian/vision-lab-flask"
+
+
+def test_source_url_can_be_pointed_at_a_modified_deployment() -> None:
+    """Section 13 of the AGPL asks a modified, network-deployed copy to offer its own
+    source; this variable is how an operator points the footer link at it instead of
+    editing the source default."""
+    settings = Settings.from_env({"VISION_LAB_SOURCE_URL": "https://example.invalid/my-fork"})
+    assert settings.source_url == "https://example.invalid/my-fork"
 
 
 def test_environment_overrides(tmp_path: Path) -> None:

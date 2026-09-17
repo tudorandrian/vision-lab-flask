@@ -177,13 +177,27 @@ input, private storage, correct algorithms, reproducible dependencies and contin
 
 ## Licences and credits
 
-- This project: GNU Affero General Public License, version 3 or later. See [LICENSE](LICENSE).
-  The footer of every page links to this source code, as section 13 of the licence requires for
-  network use.
+- This project: GNU Affero General Public License, version 3 or later. Copyright (C) 2025-2026
+  Tudor Andrian. This program comes with ABSOLUTELY NO WARRANTY; it is free software, and you are
+  welcome to redistribute it under the conditions of the licence. See [LICENSE](LICENSE).
+- The footer of every page links to this source code. That link does not by itself satisfy
+  section 13 of the licence for someone else's deployment: if you modify the application and let
+  other people use your version over a network, section 13 requires you to offer them the source
+  of your version, not this one. Change `SOURCE_URL` in `src/vision_lab/config.py`, or set
+  `VISION_LAB_SOURCE_URL`, to point the footer link at your own source before you deploy it.
 - Bootstrap 5.3.8 (MIT) is vendored under `src/vision_lab/static/vendor/bootstrap`.
 - torchvision (BSD-3-Clause); pretrained weights are subject to the terms of the datasets they
-  were trained on (COCO, Pascal VOC, ImageNet). Ultralytics YOLOv5u: AGPL-3.0. DeepFace: MIT.
-- Sample image: astronaut Eileen Collins, NASA, public domain. See [samples/README.md](samples/README.md).
+  were trained on (COCO, Pascal VOC, ImageNet). Ultralytics YOLOv5u code and weights: AGPL-3.0,
+  trained on COCO. DeepFace (MIT); the emotion model it downloads keeps its own terms and was
+  trained on the FER-2013 dataset. Check these before any use beyond study.
+- Sample image: astronaut Eileen Collins, NASA (public domain in the United States; see
+  [samples/README.md](samples/README.md) for the conditions NASA asks be respected, since Eileen
+  Collins is an identifiable person).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up the project, which checks a pull request
+must pass, and how contributions are licensed.
 
 ## Citation
 
