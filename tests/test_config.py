@@ -63,3 +63,16 @@ def test_invalid_settings_name_the_variable_and_are_rejected_at_start_up(
 def test_zero_queue_seconds_is_accepted() -> None:
     """0 means never wait for a busy slot, a legitimate choice, not an error."""
     assert Settings.from_env({"VISION_LAB_QUEUE_SECONDS": "0"}).queue_seconds == 0
+
+
+def test_a_negative_queue_seconds_message_does_not_mention_nan() -> None:
+    """The NaN and the minimum checks are separate failures with separate
+    messages; a negative-but-real number should not be told it might be NaN."""
+    with pytest.raises(SettingsError) as excinfo:
+        Settings.from_env({"VISION_LAB_QUEUE_SECONDS": "-1"})
+    assert "NaN" not in str(excinfo.value)
+
+
+def test_a_nan_queue_seconds_message_does_mention_nan() -> None:
+    with pytest.raises(SettingsError, match="NaN"):
+        Settings.from_env({"VISION_LAB_QUEUE_SECONDS": "nan"})

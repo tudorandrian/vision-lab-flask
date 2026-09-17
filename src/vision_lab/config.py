@@ -47,8 +47,10 @@ def _float(source: Mapping[str, str], name: str, default: str, minimum: float) -
         raise SettingsError(
             f"{name}={raw!r} is not a number; it must be a number >= {minimum}."
         ) from error
-    if math.isnan(value) or value < minimum:
-        raise SettingsError(f"{name}={raw!r} must be a real number >= {minimum}, not NaN.")
+    if math.isnan(value):
+        raise SettingsError(f"{name}={raw!r} must be a real number, not NaN.")
+    if value < minimum:
+        raise SettingsError(f"{name}={value} must be a number >= {minimum}.")
     return value
 
 
