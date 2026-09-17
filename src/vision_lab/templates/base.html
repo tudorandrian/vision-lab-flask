@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="robots" content="noindex">
+	<title>{% block title %}Vision Lab{% endblock %} - vision-lab-flask</title>
+	<link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+	<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+<a class="visually-hidden-focusable" href="#main">Skip to content</a>
+<header class="container py-3 mb-4 border-bottom d-flex flex-wrap align-items-center">
+	<a href="{{ url_for('home') }}" class="me-auto fs-4 link-body-emphasis text-decoration-none">Vision Lab</a>
+	<nav aria-label="Main">
+		<ul class="nav nav-pills">
+			<li class="nav-item"><a class="nav-link{% if request.endpoint == 'home' %} active{% endif %}" href="{{ url_for('home') }}"{% if request.endpoint == 'home' %} aria-current="page"{% endif %}>Process an image</a></li>
+			<li class="nav-item"><a class="nav-link{% if request.endpoint == 'algorithms' %} active{% endif %}" href="{{ url_for('algorithms') }}"{% if request.endpoint == 'algorithms' %} aria-current="page"{% endif %}>Algorithms</a></li>
+		</ul>
+	</nav>
+</header>
+<main id="main" class="container">
+{% block content %}{% endblock %}
+</main>
+<footer class="container py-3 my-4 border-top text-body-secondary small">
+	vision-lab-flask {{ app_version }}. Free software under the GNU AGPL, version 3 or later:
+	<a href="{{ source_url }}" rel="noopener">source code</a>.
+	Uploaded images are re-encoded without metadata, never shared, and deleted automatically.
+</footer>
+</body>
+</html>

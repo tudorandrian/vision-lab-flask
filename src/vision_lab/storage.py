@@ -12,6 +12,7 @@ import io
 import json
 import re
 import shutil
+import threading
 import time
 import uuid
 import warnings
@@ -83,6 +84,11 @@ class JobStore:
     def __init__(self, jobs_dir: Path, ttl_minutes: int) -> None:
         self._root = jobs_dir
         self._ttl_seconds = ttl_minutes * 60
+        # Every read purges expired jobs too (see app.py), so request threads
+        # race here often. A lock keeps the listing and the removals of one
+        # purge atomic with respect to each other; the per-entry try/except
+        # below is a second line of defence, not the primary one.
+        self._purge_lock = threading.Lock()
 
     def create(self) -> str:
         job_id = uuid.uuid4().hex
@@ -123,17 +129,39 @@ class JobStore:
         shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
 
     def purge_expired(self, now: float | None = None) -> int:
-        """Delete jobs older than the TTL. Returns how many were removed."""
+        """Delete jobs older than the TTL. Returns how many this call actually removed.
+
+        Every read purges expired jobs too (see app.py), so several request
+        threads can race here. The lock makes one purge's listing and removals
+        atomic with respect to another purge in this process, which is the
+        only place this method is ever called from; the per-entry try/except
+        below is a second line of defence (for example against something
+        outside this process touching the same directory), not the mechanism
+        this relies on for correctness.
+        """
         if not self._root.is_dir():
             return 0
         deadline = (time.time() if now is None else now) - self._ttl_seconds
         removed = 0
-        for entry in self._root.iterdir():
-            if (
-                entry.is_dir()
-                and _JOB_ID.fullmatch(entry.name)
-                and entry.stat().st_mtime < deadline
-            ):
-                shutil.rmtree(entry, ignore_errors=True)
+        with self._purge_lock:
+            try:
+                entries = list(self._root.iterdir())
+            except FileNotFoundError:
+                return 0
+            for entry in entries:
+                try:
+                    is_expired = (
+                        entry.is_dir()
+                        and _JOB_ID.fullmatch(entry.name)
+                        and entry.stat().st_mtime < deadline
+                    )
+                except FileNotFoundError:
+                    continue  # already gone
+                if not is_expired:
+                    continue
+                try:
+                    shutil.rmtree(entry)
+                except (FileNotFoundError, PermissionError):
+                    continue  # already gone, or another process is mid-delete
                 removed += 1
         return removed

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import struct
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -228,3 +229,44 @@ def test_purge_removes_only_expired_jobs(store: JobStore, tmp_path: Path) -> Non
 
 def test_purge_on_a_missing_root_is_a_no_op(tmp_path: Path) -> None:
     assert JobStore(tmp_path / "nowhere", 60).purge_expired() == 0
+
+
+def test_purge_expired_is_safe_under_concurrent_requests(store: JobStore, tmp_path: Path) -> None:
+    """Two request threads racing to purge the same expired job must not raise.
+
+    A real Flask deployment purges on every read (see app.py show_job/job_file),
+    so several threads can observe the same aged-out directory at once; whichever
+    one wins the rmtree must not make the other crash with FileNotFoundError.
+    """
+    job_count = 40
+    thread_count = 8
+    two_hours_ago = time.time() - 7200
+    for _ in range(job_count):
+        job_id = store.create()
+        os.utime(tmp_path / "jobs" / job_id, (two_hours_ago, two_hours_ago))
+
+    barrier = threading.Barrier(thread_count)
+    results: list[int] = []
+    errors: list[BaseException] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            count = store.purge_expired()
+        except BaseException as error:
+            with lock:
+                errors.append(error)
+        else:
+            with lock:
+                results.append(count)
+
+    threads = [threading.Thread(target=worker) for _ in range(thread_count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert not list((tmp_path / "jobs").iterdir())
+    assert sum(results) == job_count

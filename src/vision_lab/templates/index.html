@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Process an image{% endblock %}
+
+{% macro select(name, label, group_key, values) %}
+<div class="col-md-4">
+	<label class="form-label" for="{{ name }}">{{ label }}</label>
+	<select class="form-select{% if errors.get(name) %} is-invalid{% endif %}" name="{{ name }}" id="{{ name }}"
+	        {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}>
+		{% for value in values %}
+		<option value="{{ value }}"{% if request.form.get(name) == value %} selected{% endif %}>{{ catalog.group(group_key).get(value).title }}</option>
+		{% endfor %}
+	</select>
+	{% if errors.get(name) %}<div class="invalid-feedback" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro number(name, label, default, minimum, maximum, step=1, hint=none) %}
+<div class="col-md-4">
+	<label class="form-label" for="{{ name }}">{{ label }}</label>
+	{% set described = [] %}
+	{% if hint %}{% set _ = described.append(name ~ "-hint") %}{% endif %}
+	{% if errors.get(name) %}{% set _ = described.append(name ~ "-error") %}{% endif %}
+	<input class="form-control{% if errors.get(name) %} is-invalid{% endif %}" type="number" name="{{ name }}" id="{{ name }}"
+	       value="{{ request.form.get(name, default) }}" min="{{ minimum }}" max="{{ maximum }}" step="{{ step }}"
+	       {% if errors.get(name) %}aria-invalid="true"{% endif %}
+	       {% if described %}aria-describedby="{{ described | join(' ') }}"{% endif %}>
+	{% if hint %}<div class="form-text" id="{{ name }}-hint">{{ hint }}</div>{% endif %}
+	{% if errors.get(name) %}<div class="invalid-feedback" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="row align-items-center mb-5">
+	<div class="col-lg-8">
+		<h1 class="display-6 fw-bold">Image processing and vision models, side by side</h1>
+		<p class="lead">Upload one image. The server applies classical operations (filtering, edge detection,
+			histogram equalisation, enhancement, colour spaces, geometric transforms) and two pretrained networks
+			(object detection and semantic segmentation), then shows every result with the numbers behind it.</p>
+	</div>
+</div>
+
+{% if errors %}
+<div class="alert alert-danger" role="alert">
+	<p class="mb-1 fw-semibold">The image was not processed:</p>
+	<ul class="mb-0">{% for name, message in errors.items() %}<li>{{ name }}: {{ message }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form class="row g-4" action="{{ url_for('submit') }}" method="post" enctype="multipart/form-data">
+	<fieldset class="row g-3">
+		<legend>Image and models</legend>
+		<div class="col-md-8">
+			<label class="form-label" for="image">Image</label>
+			<input class="form-control{% if errors.get('image') %} is-invalid{% endif %}" type="file" name="image" id="image"
+			       accept="image/jpeg,image/png,image/webp,image/bmp" required
+			       {% if errors.get('image') %}aria-invalid="true" aria-describedby="image-hint image-error"{% else %}aria-describedby="image-hint"{% endif %}>
+			<div class="form-text" id="image-hint">JPEG, PNG, WebP or BMP, up to {{ limits.max_upload_bytes // 1048576 }} MB.
+				Larger images are reduced to {{ limits.max_side }} px on the long side. Metadata is discarded and the
+				results are deleted after {{ limits.job_ttl_minutes }} minutes.</div>
+			{% if errors.get('image') %}<div class="invalid-feedback" id="image-error">{{ errors['image'] }}</div>{% endif %}
+		</div>
+		{{ select("detector", "Object detector", "models", detectors) }}
+		<div class="col-12">
+			<div class="form-check form-check-inline">
+				<input class="form-check-input" type="radio" name="result_option" id="result_single" value="single"
+				       {% if request.form.get("result_option", "single") == "single" %}checked{% endif %}>
+				<label class="form-check-label" for="result_single">Only the variants selected below</label>
+			</div>
+			<div class="form-check form-check-inline">
+				<input class="form-check-input" type="radio" name="result_option" id="result_all" value="all"
+				       {% if request.form.get("result_option") == "all" %}checked{% endif %}>
+				<label class="form-check-label" for="result_all">Every variant, for comparison</label>
+			</div>
+		</div>
+		{% if emotion %}
+		<p class="col-12 small text-body-secondary mb-0">Facial emotion analysis is enabled on this server. It runs only
+			when a person is detected, and its output is a statistical guess about an expression, not a fact about a person.</p>
+		{% endif %}
+	</fieldset>
+
+	<fieldset class="row g-3">
+		<legend>Geometric transform</legend>
+		{{ number("rotation_angle", "Rotation (degrees)", 0, -360, 360) }}
+		{{ number("scale_factor", "Scale factor", 1.0, 0.1, 4, 0.1) }}
+		<div class="col-md-4">
+			<label class="form-label" for="flip">Flip</label>
+			<select class="form-select" name="flip" id="flip">
+				{% for value in choices.FLIPS %}
+				<option value="{{ value }}"{% if request.form.get("flip") == value %} selected{% endif %}>{{ value | capitalize }}</option>
+				{% endfor %}
+			</select>
+		</div>
+		{{ number("crop_x", "Crop: left (px)", 0, 0, 10000) }}
+		{{ number("crop_y", "Crop: top (px)", 0, 0, 10000) }}
+		{{ number("crop_width", "Crop: width (px)", 0, 0, 10000, hint="0 keeps the full width.") }}
+		{{ number("crop_height", "Crop: height (px)", 0, 0, 10000, hint="0 keeps the full height.") }}
+	</fieldset>
+
+	<fieldset class="row g-3">
+		<legend>Classical operations</legend>
+		{{ select("filter_type", "Smoothing filter", "filter_type", choices.FILTERS) }}
+		{{ number("kernel_size", "Kernel size", 7, 3, 31, 2, hint="Odd numbers only.") }}
+		{{ select("edge_algorithm", "Edge detector", "edge_algorithm", choices.EDGE_ALGORITHMS) }}
+		{{ number("threshold1", "Canny: lower threshold", 100, 0, 1000) }}
+		{{ number("threshold2", "Canny: upper threshold", 200, 0, 1000) }}
+		{{ select("equalization_type", "Histogram equalisation", "equalization_type", choices.EQUALIZATIONS) }}
+		{{ number("clip_limit", "CLAHE: clip limit", 2.0, 0.1, 40, 0.1) }}
+		{{ number("tile_grid_size", "CLAHE and AHE: tiles per side", 8, 1, 32) }}
+		{{ select("enhancement_type", "Enhancement", "enhancement_type", choices.ENHANCEMENTS) }}
+		{{ number("enhancement_value", "Enhancement value", 1.0, 0, 4, 0.1, hint="1.0 is neutral for brightness and contrast.") }}
+		{{ select("color_space", "Colour space", "color_space", choices.COLOR_SPACES) }}
+	</fieldset>
+
+	<div class="col-12">
+		<button class="btn btn-primary btn-lg" type="submit">Process image</button>
+		<span class="ms-3 text-body-secondary small">The first run downloads model weights and can take a minute.</span>
+	</div>
+</form>
+{% endblock %}

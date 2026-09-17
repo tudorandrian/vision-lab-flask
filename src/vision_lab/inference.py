@@ -19,6 +19,10 @@ import cv2
 
 from vision_lab.imaging import Image
 
+# The confidence below which a detection is discarded. Shared by every detector
+# so the result page can report the one number that was actually applied.
+DEFAULT_SCORE_THRESHOLD = 0.5
+
 
 @dataclass(frozen=True)
 class Detection:
@@ -56,9 +60,13 @@ def _to_tensor(image: Image) -> Any:
 
 
 class TorchvisionDetector:
-    """Faster R-CNN, MobileNetV3-Large FPN backbone, COCO labels. BSD-3-Clause."""
+    """Faster R-CNN, MobileNetV3-Large 320 FPN backbone, COCO labels. BSD-3-Clause.
 
-    def __init__(self, weights_dir: Path, score_threshold: float = 0.5) -> None:
+    Images are resized so the short side is 320 px internally, trading
+    small-object accuracy for CPU speed.
+    """
+
+    def __init__(self, weights_dir: Path, score_threshold: float = DEFAULT_SCORE_THRESHOLD) -> None:
         import torch
         from torchvision.models.detection import (
             FasterRCNN_MobileNet_V3_Large_320_FPN_Weights,
@@ -96,7 +104,9 @@ class YoloDetector:
     inference_mode and need no lock.
     """
 
-    def __init__(self, weights_dir: Path, variant: str, score_threshold: float = 0.5) -> None:
+    def __init__(
+        self, weights_dir: Path, variant: str, score_threshold: float = DEFAULT_SCORE_THRESHOLD
+    ) -> None:
         from ultralytics import YOLO, settings
 
         # Ultralytics reports anonymous usage analytics unless told not to.
