@@ -9,6 +9,7 @@ import re
 import shutil
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from flask.testing import FlaskClient
 from PIL import Image as PilImage
 
 from tests.conftest import FakeDetector, FakeRegistry, png_bytes
+from vision_lab import app as app_module
 from vision_lab.app import create_app
 from vision_lab.config import Settings
 
@@ -242,6 +244,61 @@ def test_second_concurrent_job_gets_503_with_retry_after(settings: Settings) -> 
     assert "Traceback" not in busy_html
     assert first == [303]
     assert submit(flask_app.test_client()).status_code == 303, "the slot is released afterwards"
+
+
+def test_decoding_waits_for_the_inference_slot(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decoding a large image can use hundreds of MB; it must happen after the
+    inference slot is acquired, or every waitress thread could decode at once.
+    """
+    settings = replace(settings, max_concurrent_jobs=1, queue_seconds=5.0)
+    real_decode = app_module.decode_upload
+    active = 0
+    overlapped = False
+    lock = threading.Lock()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def fake_decode(stream: object, **kwargs: object) -> Any:
+        nonlocal active, overlapped
+        with lock:
+            active += 1
+            if active > 1:
+                overlapped = True
+        entered.set()
+        release.wait(timeout=10)
+        try:
+            return real_decode(stream, **kwargs)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr("vision_lab.app.decode_upload", fake_decode)
+    flask_app = create_app(settings, FakeRegistry(settings.weights_dir))
+    results: list[int] = []
+    lock2 = threading.Lock()
+
+    def worker() -> None:
+        status = submit(flask_app.test_client()).status_code
+        with lock2:
+            results.append(status)
+
+    first = threading.Thread(target=worker)
+    first.start()
+    assert entered.wait(timeout=10), "the first request never reached decode"
+    second = threading.Thread(target=worker)
+    second.start()
+    # Give a buggy (decode-before-slot) implementation a chance to let the
+    # second request's decode start while the first is still blocked above;
+    # the assertion below is unaffected by scheduling either way.
+    time.sleep(0.3)
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+
+    assert not overlapped, "two decodes ran at the same time"
+    assert sorted(results) == [303, 303]
 
 
 def test_emotion_section_only_when_enabled(settings: Settings, app: Flask) -> None:

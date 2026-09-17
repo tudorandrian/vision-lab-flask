@@ -94,16 +94,14 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             return form_page(400, {"image": "Choose an image to upload."})
         try:
             chosen = params.parse_params(request.form, registry.available_detectors())
-            image = decode_upload(
-                upload.stream, max_pixels=settings.max_pixels, max_side=settings.max_side
-            )
         except params.ParamError as error:
             return form_page(400, error.errors)
-        except UploadError as error:
-            return form_page(400, {"image": str(error)})
 
         # Wait briefly for the inference slot, then give up: a bounded queue keeps
         # memory and response times predictable however many uploads arrive at once.
+        # The slot is acquired before decoding, not after: decoding a large image
+        # can use hundreds of MB, and every waitress thread could otherwise decode
+        # a separate upload at the same time regardless of this limit.
         if not slots.acquire(timeout=settings.queue_seconds):
             page = render_template(
                 "error.html",
@@ -114,6 +112,12 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
             response.headers["Retry-After"] = "10"
             return response
         try:
+            try:
+                image = decode_upload(
+                    upload.stream, max_pixels=settings.max_pixels, max_side=settings.max_side
+                )
+            except UploadError as error:
+                return form_page(400, {"image": str(error)})
             store.purge_expired()
             job_id = store.create()
             try:

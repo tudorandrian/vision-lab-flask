@@ -65,6 +65,13 @@ def decode_upload(stream: IO[bytes], *, max_pixels: int, max_side: int) -> Image
                 raise UploadError("Only JPEG, PNG, WebP and BMP images are accepted.")
             if picture.width * picture.height > max_pixels:
                 raise UploadError(f"The image has more than {max_pixels:,} pixels.")
+            # For a JPEG, ask the decoder for a version already close to the
+            # size we will downscale to anyway: libjpeg can decode at 1/2,
+            # 1/4 or 1/8 scale directly, which lowers the peak memory of
+            # decoding a large photo. draft() is a no-op for every other
+            # format (the base Image class defines it as such), so this is
+            # safe to call unconditionally.
+            picture.draft("RGB", (max_side, max_side))
             upright = ImageOps.exif_transpose(picture).convert("RGB")
     except UploadError:
         raise
