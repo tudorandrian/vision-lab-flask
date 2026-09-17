@@ -19,6 +19,22 @@ import cv2
 
 from vision_lab.imaging import Image
 
+# Forced unconditionally (assignment, not setdefault), at module import time
+# rather than inside YoloDetector.__init__, so this is structural rather than
+# dependent on nothing else importing ultralytics first, and so a careless or
+# hostile environment cannot switch either guard back off. Both are read as
+# module-level constants the first time ultralytics.utils is imported
+# (AUTOINSTALL: ultralytics/utils/__init__.py:71; SAFE_LOAD:
+# ultralytics/utils/__init__.py:73, consumed at nn/tasks.py:1824), so this
+# must run before that happens, wherever the import happens from. Unset, a
+# decode failure on a hostile upload (Pillow's opener is patched by
+# ultralytics on import) triggers `uv pip install` from PyPI mid-request
+# (AUTOINSTALL defaults True), and a YOLO checkpoint is unpickled with
+# weights_only=False (SAFE_LOAD defaults False): neither an unlocked package
+# nor code execution from a tampered checkpoint is acceptable while serving.
+os.environ["YOLO_AUTOINSTALL"] = "false"
+os.environ["ULTRALYTICS_SAFE_LOAD"] = "1"
+
 # The confidence below which a detection is discarded. Shared by every detector
 # so the result page can report the one number that was actually applied.
 DEFAULT_SCORE_THRESHOLD = 0.5
@@ -112,16 +128,8 @@ class YoloDetector:
     def __init__(
         self, weights_dir: Path, variant: str, score_threshold: float = DEFAULT_SCORE_THRESHOLD
     ) -> None:
-        # Ultralytics reads these as module-level constants the first time
-        # ultralytics.utils is imported, so they must be set before the import
-        # below. Unset, a decode failure on a hostile upload (Pillow's opener
-        # is patched by ultralytics on import) triggers `uv pip install` from
-        # PyPI mid-request (AUTOINSTALL defaults True, utils/__init__.py), and
-        # the checkpoint is unpickled with weights_only=False (SAFE_LOAD
-        # defaults False, utils/patches.py): neither an unlocked package nor
-        # code execution from a tampered checkpoint is acceptable while serving.
-        os.environ.setdefault("YOLO_AUTOINSTALL", "false")
-        os.environ.setdefault("ULTRALYTICS_SAFE_LOAD", "1")
+        # YOLO_AUTOINSTALL and ULTRALYTICS_SAFE_LOAD are forced at module
+        # import time, above; see the comment there.
         from ultralytics import YOLO, settings
 
         # Ultralytics reports anonymous usage analytics unless told not to.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import cv2
@@ -84,3 +86,26 @@ def test_yolo_detector_disables_autoinstall_and_unsafe_pickle_load(
 
     assert ultra_utils.AUTOINSTALL is False
     assert ultra_utils.SAFE_LOAD is True
+
+
+def test_environment_cannot_re_enable_autoinstall_or_unsafe_pickle_loading() -> None:
+    """These must be forced unconditionally at import time of vision_lab.inference,
+    not merely defaulted: a careless or hostile environment that presets
+    YOLO_AUTOINSTALL=true or ULTRALYTICS_SAFE_LOAD=0 before the process starts
+    must not be able to switch the guard off. Run in a fresh interpreter,
+    since ultralytics.utils keeps its module-level constants for the rest of
+    any one process once imported anywhere in it.
+    """
+    script = (
+        "import os\n"
+        "os.environ['YOLO_AUTOINSTALL'] = 'true'\n"
+        "os.environ['ULTRALYTICS_SAFE_LOAD'] = '0'\n"
+        "import vision_lab.inference\n"
+        "import ultralytics.utils as u\n"
+        "print(u.AUTOINSTALL, u.SAFE_LOAD)\n"
+    )
+    result = subprocess.run(  # noqa: S603 -- sys.executable and a literal script, no user input
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False True"
