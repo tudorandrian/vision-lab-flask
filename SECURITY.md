@@ -25,7 +25,7 @@ Within that scope the application defends against:
 | Leaking personal data in uploads | metadata is dropped on re-encode, no gallery or listing, deletion at the next accepted upload or the next request for any result after expiry |
 | Resource exhaustion | bounded image size, bounded parameters, one inference at a time with a bounded queue, a request body limit enforced by the WSGI server |
 | Cross-site scripting | autoescaped templates, no JavaScript, strict Content-Security-Policy |
-| Information disclosure on errors | generic error pages; details go to the server log only |
+| Information disclosure on errors | generic error pages; details go to the server log only, except a body far over the upload limit, which waitress itself refuses with a plain page naming the configured byte limit, before the request reaches this application |
 | Supply chain | locked dependencies, weekly automated updates, vulnerability audit and secret scanning in CI, vendored front-end assets |
 
 Out of scope: denial of service by a client that is allowed to upload continuously, and the

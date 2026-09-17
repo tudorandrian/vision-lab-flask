@@ -25,6 +25,7 @@ uv run mypy
 uv run bandit -q -r src
 uv run python scripts/check_text.py
 uv run python scripts/gen_algorithms_doc.py --check
+uv run pip-audit --skip-editable
 uv run pytest --cov
 ```
 

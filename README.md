@@ -93,7 +93,7 @@ you name and removes any it does not find, so running `uv sync --extra emotion` 
 
 | Extra | Adds | Install | Notes |
 | --- | --- | --- | --- |
-| `yolo` | YOLOv5nu and YOLOv5su detectors | `uv sync --extra yolo` | Ultralytics code and weights are AGPL-3.0. Usage analytics are switched off in code. |
+| `yolo` | YOLOv5nu and YOLOv5su detectors | `uv sync --extra yolo` | Ultralytics code and weights are AGPL-3.0. Usage analytics, automatic package installation and unsafe pickle loading are all switched off in code. |
 | `emotion` | facial expression estimate | `uv sync --extra emotion`, then set `VISION_LAB_ENABLE_EMOTION=1` | Pulls in TensorFlow, a large download. Read the privacy section first. |
 
 ## Configuration
@@ -128,6 +128,9 @@ start the server from.
   network access once, to download its weights; without it, the upload fails and the server log
   names the model. Copy an existing `instance/weights` directory (or set `VISION_LAB_DATA_DIR` to
   one) to reuse weights downloaded elsewhere.
+- A plain-text page naming a byte limit instead of the usual styled error page: the upload was far
+  larger than `VISION_LAB_MAX_UPLOAD_MB`, so waitress itself refused the body before Flask ever
+  saw the request; see [docs/architecture.md](docs/architecture.md#decisions) for why.
 
 ## How it is tested
 
@@ -140,7 +143,7 @@ start the server from.
 | Browser | the upload journey in Chromium, no console errors, no third-party requests, no horizontal scrolling on a phone | `uv run playwright install chromium && uv run pytest -m e2e` |
 | Load | latency and error counts under sequential and concurrent uploads | `uv run python scripts/smoke_load.py http://127.0.0.1:8000 samples/astronaut.jpg` |
 
-The fast suite (unit and web) is 152 tests at 99.09 % line and branch coverage; that figure comes
+The fast suite (unit and web) is 159 tests at 99.12 % line and branch coverage; that figure comes
 from `uv run pytest --cov`, since plain `uv run pytest` prints no coverage number. Method, measured
 numbers and known limits are in [docs/testing.md](docs/testing.md). The design is described in
 [docs/architecture.md](docs/architecture.md).
@@ -183,8 +186,8 @@ input, private storage, correct algorithms, reproducible dependencies and contin
 - The footer of every page links to this source code. That link does not by itself satisfy
   section 13 of the licence for someone else's deployment: if you modify the application and let
   other people use your version over a network, section 13 requires you to offer them the source
-  of your version, not this one. Change `SOURCE_URL` in `src/vision_lab/config.py`, or set
-  `VISION_LAB_SOURCE_URL`, to point the footer link at your own source before you deploy it.
+  of your version, not this one. Set `VISION_LAB_SOURCE_URL` to point the footer link at your own
+  source before you deploy it.
 - Bootstrap 5.3.8 (MIT) is vendored under `src/vision_lab/static/vendor/bootstrap`.
 - torchvision (BSD-3-Clause); pretrained weights are subject to the terms of the datasets they
   were trained on (COCO, Pascal VOC, ImageNet). Ultralytics YOLOv5u code and weights: AGPL-3.0,

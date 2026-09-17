@@ -37,19 +37,23 @@ returns an image:
 
 - Validation: even kernels, NaN and infinite factors, unknown choices, markup in fields: HTTP 400,
   every error listed, nothing written to disk.
-- Uploads: rejected by `decode_upload`, which the web layer turns into HTTP 400 (web tests cover
-  empty files, executables and SVG; PDF, GIF, truncated JPEG and an oversized PNG over the pixel
-  limit are covered at the `decode_upload` level in `test_storage.py`). Oversized body: HTTP 413.
+- Uploads: rejected by `validate_upload` (header, before the slot) or `decode_pending` (pixel
+  decode, inside the slot), which the web layer turns into HTTP 400 (web tests cover empty files,
+  executables and SVG; PDF, GIF, truncated JPEG and an oversized PNG over the pixel limit are
+  covered through the `decode_upload` wrapper in `test_storage.py`). Oversized body: HTTP 413.
 - Privacy: the stored original has no EXIF data; the client file name appears nowhere on disk;
-  `/jobs`, `/results` and `/uploads/` list nothing; `result.json` is not served; a job id longer
-  than eight characters is never written in full to the server log, on a failed purge or an
-  unhandled error.
+  `/jobs`, `/results` and `/uploads/` list nothing; `result.json` is not served; a failed purge
+  logs only the first eight characters of a job id; a job id inside a logged request path (a
+  capability URL) is redacted to its first eight characters plus an ellipsis on an unhandled
+  error, while the rest of the route stays readable.
 - Traversal: encoded and plain `..` in identifiers and file names: HTTP 404.
 - Robustness: a model that raises gives a generic HTTP 500 page without a traceback and leaves no
   files; a second upload during inference gets HTTP 503 with `Retry-After`, and the slot is free
-  again afterwards; expired jobs disappear on the next upload; decoding an upload happens only
-  after the inference slot is acquired, so two concurrent uploads never decode their images at the
-  same time.
+  again afterwards; expired jobs disappear on the next upload.
+- Queueing: only the upload's header (format, dimensions) is checked before the inference slot is
+  acquired; a bad parameter, an unreadable file or an oversized upload all fail immediately with
+  their specific 400 or 413, however long the slot is held, instead of waiting out the queue and
+  coming back as a slow 503 (`test_pre_slot_checks_stay_fast_while_the_slot_is_held`).
 - Headers on every response, no cookies, no third-party URLs in any page.
 - Viewing a result three times calls the detector once.
 - Header-only decompression bombs are rejected cleanly on both sides of Pillow's own threshold,
@@ -63,6 +67,10 @@ returns an image:
 - Models are built once per process: viewing a result again does not run them a second time.
 - Ultralytics' automatic package installation is off, and unsafe pickle loading of the YOLO
   checkpoint is disabled, before the library is imported.
+- A hostile or careless environment cannot re-enable either guard: setting `YOLO_AUTOINSTALL=true`
+  and `ULTRALYTICS_SAFE_LOAD=0` before `vision_lab.inference` is even imported still leaves both
+  forced to their safe value, since the module sets them unconditionally rather than defaulting
+  them.
 - The model registry's weights directory follows `VISION_LAB_DATA_DIR` rather than a path
   hardcoded relative to the working directory.
 
@@ -79,7 +87,7 @@ hardware; see that row for its own date and base image.
 
 | Measure | Value |
 | --- | --- |
-| Unit and web suite | 152 tests in about 8 s, 99.09 % line and branch coverage |
+| Unit and web suite | 159 tests in about 11 s, 99.12 % line and branch coverage |
 | Weights to download on first run (not re-measured; they are cached on this machine) | about 140 MB total (yolov5nu 5.3 MB, yolov5su 17.7 MB, DeepLabV3 42.3 MB, Faster R-CNN 74.2 MB) |
 | Docker image size (`python:3.13-slim-bookworm` base, CPU wheels, no extras), built 2026-09-17 | 2.08 GB |
 | First upload with every variant and YOLOv5su, models cold (weights already on disk) | 11.2 s |

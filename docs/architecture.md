@@ -6,10 +6,20 @@
 POST /jobs  ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
             ->  no image field             request.files.get("image") is empty              -> 400
             ->  params.parse_params        every field validated, all errors at once         -> 400
-            ->  storage.decode_upload      format, pixel limit, re-encode, downscale         -> 400
+            ->  storage.validate_upload    header only: format allow-list (MPO included),
+                                            pixel limit from the header                      -> 400
             ->  inference slot             bounded wait, then give up                        -> 503 + Retry-After, the HTML error page
+            ->  storage.decode_pending     draft decode, EXIF orientation, colour
+                                            conversion, downscale                             -> 400
             ->  purge + pipeline.run_job   expired jobs removed, then ops and models run      -> 500, job discarded, on failure
             ->  303 See Other              /jobs/<id>
+
+Every check up to and including validate_upload runs before the inference slot is acquired, so an
+invalid upload (wrong field, bad parameters, an unreadable file, one that fails the header check)
+never has to wait for a busy server; only the two things that can be expensive, decoding and
+running the models, happen inside the slot. `decode_upload` (validate_upload then decode_pending
+in one call) survives as a convenience wrapper used by callers, and the storage tests, that have
+no reason to split the cheap check from the expensive decode.
 
 GET /jobs/<id>               purges expired jobs, then reads result.json and renders; models never run on a GET
 GET /jobs/<id>/files/<name>  purges expired jobs, checks id and name against strict patterns, then serves one image

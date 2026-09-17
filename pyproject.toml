@@ -62,6 +62,8 @@ packages = ["src/vision_lab"]
 # Without this, hatchling includes every file not excluded by .gitignore, which does not
 # cover .git/info/exclude (where the local .superpowers/ workspace is excluded) or the
 # instance/ directory a local run creates. List what belongs in a source distribution instead.
+# Route B (Docker) must be followable from an unpacked sdist too, so this also carries the
+# container and CI files, not just the wheel's own runtime code.
 [tool.hatch.build.targets.sdist]
 include = [
     "src",
@@ -69,6 +71,7 @@ include = [
     "docs",
     "samples",
     "scripts",
+    ".github",
     "README.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -77,6 +80,10 @@ include = [
     "LICENSE",
     "pyproject.toml",
     "uv.lock",
+    "Dockerfile",
+    "compose.yaml",
+    ".editorconfig",
+    ".gitattributes",
 ]
 
 # CPU-only PyTorch wheels on every platform: the default Linux wheels bundle

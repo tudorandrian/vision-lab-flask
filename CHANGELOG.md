@@ -54,16 +54,19 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 ### Security
 
 - Ultralytics' automatic installation of missing packages from PyPI, and its unsafe pickle
-  loading of the YOLO checkpoint, are switched off before the library is imported: previously a
-  hostile upload with the `yolo` extra installed could make the server install an unpinned
-  package, or load an unverified checkpoint, at request time.
+  loading of the YOLO checkpoint, are forced off by an unconditional module-scope assignment
+  (not a default), before the library is ever imported, so the environment cannot re-enable
+  either check: previously a hostile upload with the `yolo` extra installed could make the server
+  install an unpinned package, or load an unverified checkpoint, at request time.
 - torchvision detector and segmenter weights are pinned to explicit enum members (`COCO_V1`,
   `COCO_WITH_VOC_LABELS_V1`) instead of `.DEFAULT`, so a torchvision upgrade cannot silently
   change detection or segmentation results.
-- An upload's image is now decoded only after the inference slot is acquired, so concurrent
-  uploads cannot each decode a large image outside the configured concurrency limit.
-- Job ids and request paths are truncated to eight characters before being written to the server
-  log.
+- An upload's header (format, dimensions) is now checked before the inference slot is acquired, so
+  an invalid upload is rejected immediately instead of waiting behind a busy server; only the full
+  pixel decode, which can use hundreds of MB for a large photo, happens once the slot is held.
+- A job id inside a logged request path (a capability URL) is redacted to its first eight
+  characters plus an ellipsis; the rest of the path is kept so the route that failed is still
+  identifiable.
 
 ### Removed
 
