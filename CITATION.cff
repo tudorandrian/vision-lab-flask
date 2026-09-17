@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "vision-lab-flask: classical image processing and pretrained vision models behind Flask"
+type: software
+authors:
+  - family-names: Andrian
+    given-names: Tudor
+version: 1.0.0
+license: AGPL-3.0-or-later
+repository-code: https://github.com/tudorandrian/vision-lab-flask
