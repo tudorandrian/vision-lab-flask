@@ -38,6 +38,18 @@ jobs:
       # torch and torchvision carry a +cpu local version, which PyPI advisories cannot
       # match; pip-audit lists them as skipped. Dependabot alerts cover them instead.
       - run: uv run pip-audit --skip-editable
+      # The step above only sees the base dependency set: `uv sync --locked` installs
+      # no extras, so ultralytics, deepface, tensorflow, keras and gdown (the yolo and
+      # emotion extras) are never audited. Export the full locked set instead, without
+      # installing it, and audit that: --disable-pip stops pip-audit from ever running
+      # pip, so this only reads pinned name/version pairs from uv.lock.
+      - name: Export the full dependency set (all extras) for a vulnerability audit
+        run: |
+          uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes \
+            -o "$RUNNER_TEMP/requirements-all.txt"
+          # torch/torchvision's +cpu local version is not a PyPI release; see above.
+          grep -v '+cpu' "$RUNNER_TEMP/requirements-all.txt" > "$RUNNER_TEMP/requirements-all-audit.txt"
+      - run: uv run pip-audit --no-deps --disable-pip -r "$RUNNER_TEMP/requirements-all-audit.txt"
 
   tests:
     strategy:
