@@ -5,6 +5,11 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-09-23
+
+Patch release: the load smoke script explains its own usage. The application code and its
+dependencies are unchanged.
+
 ### Fixed
 
 - `scripts/smoke_load.py` prints its usage (exit code 2) when the URL or image argument is
@@ -175,7 +180,8 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 Coursework submission: a single-file Flask application with a Romanian interface. Kept as the
 tag `v0.1.0-coursework`.
 
-[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.0...v1.1.1
