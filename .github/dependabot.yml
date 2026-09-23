@@ -15,6 +15,10 @@ updates:
       # OpenCV 5 removed cv2.CascadeClassifier, which DeepFace still calls. See pyproject.toml.
       - dependency-name: opencv-python
         update-types: [version-update:semver-major]
+      # sympy 1.14 (required by torch) requires mpmath<1.4, so uv.lock cannot take 1.4.x and
+      # Dependabot would only change requirements.txt. Remove once sympy allows mpmath 1.4.
+      - dependency-name: mpmath
+        versions: [">= 1.4"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
