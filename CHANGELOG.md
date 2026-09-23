@@ -5,6 +5,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Dependabot no longer proposes Docker base images with Python 3.14 or later, which the project
+  does not support yet (`requires-python` is `>=3.12,<3.14`).
+- `docs/testing.md` records the first `Emotion smoke` run: it passed on 2026-09-23 against 1.1.0.
+
 ## [1.1.0] - 2026-09-23
 
 Hardening after an internal source review of 1.0.0: the same scope, with one new setting.

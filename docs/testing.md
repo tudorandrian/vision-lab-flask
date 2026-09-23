@@ -119,7 +119,10 @@ at the image's own size rather than the published 520 px transform; see
   honestly.
 - The `emotion` extra is covered by a fake in the web tests; the real DeepFace import and its
   no-face path run in the separate `Emotion smoke` workflow (monthly and on demand), not in the
-  required checks, because TensorFlow is too large for the matrix. There is no face fixture with
-  consent in the repository, so a detected face is still verified by hand.
+  required checks, because TensorFlow is too large for the matrix. Its first run, on 2026-09-23
+  against 1.1.0, passed
+  ([run 35835058661](https://github.com/tudorandrian/vision-lab-flask/actions/runs/35835058661)).
+  There is no face fixture with consent in the repository, so a detected face is still verified
+  by hand.
 - There is no rate limiting per client. The queue bounds the work the server accepts, not who
   sends it; put a reverse proxy in front before exposing the application.

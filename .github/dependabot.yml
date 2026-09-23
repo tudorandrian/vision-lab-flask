@@ -24,3 +24,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # The image must stay inside requires-python (">=3.12,<3.14" in pyproject.toml).
+      # Widen this when the project adds support for a newer Python.
+      - dependency-name: python
+        versions: [">= 3.14"]
