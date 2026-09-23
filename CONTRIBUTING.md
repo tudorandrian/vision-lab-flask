@@ -18,9 +18,9 @@ and is not needed for most changes; see README "Optional extras".
   `uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt` and commit the
   result; CI fails when the two files disagree. On Dependabot's uv pull requests the
   `Dependabot requirements` workflow does this for you: it pushes one commit, and CI runs on it
-  after a maintainer selects "Approve workflows to run" in the pull request. After that commit
-  Dependabot no longer rebases the pull request; comment `@dependabot recreate` if it needs
-  refreshing, and the workflow runs again.
+  after a maintainer selects "Approve workflows to run" in the pull request. The commit is marked
+  `[dependabot skip]`, so Dependabot still rebases the pull request: it replaces the commit, and
+  the workflow adds it again.
 
 ## Before you open a pull request
 

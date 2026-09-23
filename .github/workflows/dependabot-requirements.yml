@@ -59,5 +59,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "build: re-export requirements.txt from uv.lock" -- requirements.txt
+          # [dependabot skip] lets Dependabot keep rebasing this pull request: it force-pushes
+          # over this commit, and that push runs this job again.
+          git commit -m "build: re-export requirements.txt from uv.lock [dependabot skip]" -- requirements.txt
           git push origin "HEAD:refs/heads/${HEAD_REF}"
