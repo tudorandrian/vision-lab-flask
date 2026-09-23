@@ -3,12 +3,15 @@
 ## Request flow
 
 ```
-POST /jobs  ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
+POST /jobs  ->  cross-site request         Sec-Fetch-Site, else Origin against the host     -> 403
+            ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
             ->  no image field             request.files.get("image") is empty              -> 400
             ->  params.parse_params        every field validated, all errors at once         -> 400
             ->  storage.validate_upload    header only: format allow-list (MPO included),
                                             pixel limit from the header                      -> 400
-            ->  inference slot             bounded wait, then give up                        -> 503 + Retry-After, the HTML error page
+            ->  inference slot             a free slot is taken at once; otherwise at most
+                                            VISION_LAB_QUEUE_DEPTH uploads wait up to
+                                            VISION_LAB_QUEUE_SECONDS                        -> 503 + Retry-After, the HTML error page
             ->  storage.decode_pending     draft decode, EXIF orientation, colour
                                             conversion, downscale                             -> 400
             ->  purge + pipeline.run_job   expired jobs removed, then ops and models run      -> 500, job discarded, on failure
@@ -85,7 +88,12 @@ purge's listing and removals atomic against a concurrent purge in the same proce
 **One inference at a time.** A CPU model saturates the cores it is given; running two at once
 makes both slower and doubles peak memory. Uploads wait up to `VISION_LAB_QUEUE_SECONDS` for the
 slot and then receive 503 with `Retry-After` on the same HTML error page used for other failures,
-so load degrades predictably instead of crashing.
+so load degrades predictably instead of crashing. The wait itself is bounded too: at most
+`VISION_LAB_QUEUE_DEPTH` uploads may be waiting for the slot; an upload arriving beyond that gets
+the busy page at once. This is the application's admission control; waitress still accepts and
+buffers connections independently of it (its own connection and body limits apply), so a shared
+deployment needs per-client rate limiting at the reverse proxy in front, which this application
+does not attempt.
 
 **The scale cap is applied before the resize allocates.** `ops.transform` clamps the requested
 scale factor so that the target's longer side never exceeds `VISION_LAB_MAX_SIDE`, instead of

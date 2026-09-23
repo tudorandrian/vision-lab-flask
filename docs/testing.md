@@ -53,7 +53,9 @@ returns an image:
 - Queueing: only the upload's header (format, dimensions) is checked before the inference slot is
   acquired; a bad parameter, an unreadable file or an oversized upload all fail immediately with
   their specific 400 or 413, however long the slot is held, instead of waiting out the queue and
-  coming back as a slow 503 (`test_pre_slot_checks_stay_fast_while_the_slot_is_held`).
+  coming back as a slow 503 (`test_pre_slot_checks_stay_fast_while_the_slot_is_held`); beyond
+  `VISION_LAB_QUEUE_DEPTH` waiting uploads the next one is refused immediately
+  (`test_uploads_beyond_the_queue_depth_are_refused_at_once`).
 - Cross-site protection: a `POST /jobs` carrying `Sec-Fetch-Site: cross-site` or a foreign
   `Origin` is refused with HTTP 403 and creates nothing; same-origin, `none` and headerless
   requests are accepted.
@@ -97,6 +99,7 @@ hardware; see that row for its own date and base image.
 | Upload with defaults, models warm, median of 10 | 0.60 s (maximum 0.73 s) |
 | 12 uploads from 4 clients, queue of 15 s | 12 processed, none refused, no 5xx |
 | The same with `VISION_LAB_QUEUE_SECONDS=0` | 1 processed, 11 refused with 503 and `Retry-After`, no 5xx, process stays up |
+| The same with `VISION_LAB_QUEUE_DEPTH=1`, measured 2026-09-23 | 2 processed, 10 refused with 503 and `Retry-After`, no other 5xx, process stays up |
 | Resident memory before any model is loaded | about 58 MB |
 | Resident memory with Faster R-CNN and DeepLabV3 loaded (one default upload) | about 498 MB |
 | Resident memory with YOLOv5nu also loaded | about 551 MB |

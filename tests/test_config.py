@@ -11,6 +11,7 @@ def test_defaults_are_conservative() -> None:
     settings = Settings.from_env({})
     assert settings.max_upload_bytes == 8 * 1024 * 1024
     assert settings.max_concurrent_jobs == 1
+    assert settings.queue_depth == 4
     assert settings.enable_emotion is False
     assert settings.data_dir.is_absolute()
     assert settings.source_url == "https://github.com/tudorandrian/vision-lab-flask"
@@ -54,6 +55,7 @@ def test_environment_overrides(tmp_path: Path) -> None:
         ({"VISION_LAB_QUEUE_SECONDS": "inf"}, "VISION_LAB_QUEUE_SECONDS"),
         ({"VISION_LAB_QUEUE_SECONDS": "1e999"}, "VISION_LAB_QUEUE_SECONDS"),
         ({"VISION_LAB_QUEUE_SECONDS": "3601"}, "VISION_LAB_QUEUE_SECONDS"),
+        ({"VISION_LAB_QUEUE_DEPTH": "-1"}, "VISION_LAB_QUEUE_DEPTH"),
     ],
 )
 def test_invalid_settings_name_the_variable_and_are_rejected_at_start_up(

@@ -93,6 +93,38 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
     # deleted job by at most that cap, min(5 minutes, TTL), not indefinitely.
     image_max_age = min(300, settings.job_ttl_minutes * 60)
 
+    # The semaphore bounds how many jobs run; this counter bounds how many
+    # requests may actually block waiting for it (a free slot is taken with a
+    # non-blocking acquire first, so an idle server never counts against the
+    # depth, even when queue_depth is 0). Without this, every waitress thread
+    # can sit in slots.acquire() for queue_seconds while further request
+    # bodies queue up behind them, and /healthz and result pages stall too.
+    waiting = 0
+    admission = threading.Lock()
+
+    def enter_queue() -> bool:
+        nonlocal waiting
+        with admission:
+            if waiting >= settings.queue_depth:
+                return False
+            waiting += 1
+            return True
+
+    def leave_queue() -> None:
+        nonlocal waiting
+        with admission:
+            waiting -= 1
+
+    def busy_page() -> Response:
+        page = render_template(
+            "error.html",
+            status=503,
+            message="The server is busy processing another image. Please try again shortly.",
+        )
+        response = make_response(page, 503)
+        response.headers["Retry-After"] = "10"
+        return response
+
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = settings.max_upload_bytes
     app.config["MAX_FORM_MEMORY_SIZE"] = 64 * 1024
@@ -153,17 +185,20 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         except UploadError as error:
             return form_page(400, {"image": str(error)})
 
-        # Wait briefly for the inference slot, then give up: a bounded queue keeps
-        # memory and response times predictable however many uploads arrive at once.
-        if not slots.acquire(timeout=settings.queue_seconds):
-            page = render_template(
-                "error.html",
-                status=503,
-                message="The server is busy processing another image. Please try again shortly.",
-            )
-            response = make_response(page, 503)
-            response.headers["Retry-After"] = "10"
-            return response
+        # Take a free slot immediately if there is one; only an upload that would
+        # otherwise have to wait counts against queue_depth, then waits briefly for
+        # the slot and gives up: a bounded queue keeps memory and response times
+        # predictable however many uploads arrive at once.
+        acquired = slots.acquire(blocking=False)
+        if not acquired:
+            if not enter_queue():
+                return busy_page()
+            try:
+                acquired = slots.acquire(timeout=settings.queue_seconds)
+            finally:
+                leave_queue()
+            if not acquired:
+                return busy_page()
         try:
             try:
                 image = decode_pending(pending, max_side=settings.max_side)

@@ -45,8 +45,9 @@ def main() -> None:
         "serving on http://%s:%d, data in %s", args.host, args.port, settings.data_dir
     )
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
-    # One inference runs at a time (see Settings.max_concurrent_jobs); the extra
-    # threads keep pages, images and the busy response fast while it does.
+    # One inference runs at a time and at most queue_depth uploads wait for it
+    # (see Settings); the remaining threads keep pages, images and the busy
+    # response fast while it does.
     #
     # waitress defaults max_request_body_size to 1 GB and buffers the whole body
     # (spilling to a temp file) before Flask's MAX_CONTENT_LENGTH can answer 413,

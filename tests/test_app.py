@@ -344,6 +344,103 @@ def test_second_concurrent_job_gets_503_with_retry_after(settings: Settings) -> 
     assert submit(flask_app.test_client()).status_code == 303, "the slot is released afterwards"
 
 
+def test_uploads_beyond_the_queue_depth_are_refused_at_once(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Eight waitress threads each waiting queue_seconds for one slot would
+    stall health checks and result pages. Only queue_depth uploads may wait;
+    the next one gets the busy page immediately, not after the timeout."""
+    settings = replace(settings, queue_seconds=5.0, queue_depth=1)
+    entered, release = threading.Event(), threading.Event()
+    waiting_for_slot = threading.Event()
+
+    class Slow(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    class ObservingSemaphore(threading.BoundedSemaphore):
+        """Flags when a caller reaches the blocking, timed acquire (as opposed
+        to the initial non-blocking one), so the test can wait for that instead
+        of sleeping a fixed, potentially too-short amount of time."""
+
+        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+            if timeout is not None:
+                waiting_for_slot.set()
+            return super().acquire(blocking, timeout)
+
+    monkeypatch.setattr(app_module.threading, "BoundedSemaphore", ObservingSemaphore)
+
+    flask_app = create_app(settings, Slow(settings.weights_dir))
+    flask_app.config["TESTING"] = True
+    statuses: list[int] = []
+
+    def upload() -> None:
+        statuses.append(submit(flask_app.test_client()).status_code)
+
+    running = threading.Thread(target=upload)
+    waiting = threading.Thread(target=upload)
+    try:
+        running.start()
+        assert entered.wait(timeout=10)
+        waiting.start()
+        assert waiting_for_slot.wait(timeout=10), "the second request never reached slots.acquire"
+        started = time.perf_counter()
+        refused = submit(flask_app.test_client())
+        elapsed = time.perf_counter() - started
+        assert (refused.status_code, refused.headers["Retry-After"]) == (503, "10")
+        assert elapsed < 2.0, "refused immediately, not after queue_seconds"
+    finally:
+        release.set()
+        if running.ident is not None:
+            running.join(timeout=10)
+        if waiting.ident is not None:
+            waiting.join(timeout=10)
+    assert sorted(statuses) == [303, 303], "the running and the waiting upload both complete"
+    assert submit(flask_app.test_client()).status_code == 303, "the queue is empty again"
+
+
+def test_zero_queue_depth_still_processes_an_upload_when_the_server_is_idle(
+    settings: Settings,
+) -> None:
+    """queue_depth=0 means an upload never waits for a busy slot, not that the
+    server refuses every upload: an idle server must still take the free slot
+    directly instead of treating queue_depth=0 as always full."""
+    settings = replace(settings, queue_depth=0)
+    client = create_app(settings, FakeRegistry(settings.weights_dir)).test_client()
+    assert submit(client).status_code == 303
+
+
+def test_zero_queue_depth_refuses_a_second_upload_immediately_while_busy(
+    settings: Settings,
+) -> None:
+    settings = replace(settings, queue_seconds=5.0, queue_depth=0)
+    entered, release = threading.Event(), threading.Event()
+
+    class Slow(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    flask_app = create_app(settings, Slow(settings.weights_dir))
+    flask_app.config["TESTING"] = True
+    running = threading.Thread(target=lambda: submit(flask_app.test_client()))
+    try:
+        running.start()
+        assert entered.wait(timeout=10)
+        started = time.perf_counter()
+        refused = submit(flask_app.test_client())
+        elapsed = time.perf_counter() - started
+        assert (refused.status_code, refused.headers["Retry-After"]) == (503, "10")
+        assert elapsed < 2.0, "refused immediately, well under queue_seconds"
+    finally:
+        release.set()
+        if running.ident is not None:
+            running.join(timeout=10)
+
+
 def test_decoding_waits_for_the_inference_slot(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
