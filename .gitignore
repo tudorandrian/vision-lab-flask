@@ -28,7 +28,3 @@ Thumbs.db
 # Local environment files
 .env
 .env.*
-
-# Local planning and agent workspaces, never part of the project
-.superpowers/
-docs/superpowers/
