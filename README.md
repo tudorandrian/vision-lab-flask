@@ -147,7 +147,7 @@ start the server from.
 | Browser | the upload journey in Chromium, no console errors, no third-party requests, no horizontal scrolling on a phone | `uv run playwright install chromium && uv run pytest -m e2e` |
 | Load | latency and error counts under sequential and concurrent uploads | `uv run python scripts/smoke_load.py http://127.0.0.1:8000 samples/astronaut.jpg` |
 
-The fast suite (unit and web) is 159 tests at 99.12 % line and branch coverage; that figure comes
+The fast suite (unit and web) is 197 tests at 99.20 % line and branch coverage; that figure comes
 from `uv run pytest --cov`, since plain `uv run pytest` prints no coverage number. Method, measured
 numbers and known limits are in [docs/testing.md](docs/testing.md). The design is described in
 [docs/architecture.md](docs/architecture.md).

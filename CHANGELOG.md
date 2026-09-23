@@ -5,6 +5,16 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With the `emotion` extra enabled, the server log no longer shows DeepFace's backend deprecation
+  banner or TensorFlow's oneDNN and deprecation notices. The oneDNN notice can only be hidden
+  by disabling oneDNN, which left the emotion scores and speed unchanged on the sample image. All
+  three are defaults only: setting `DEEPFACE_LOG_LEVEL`, `TF_ENABLE_ONEDNN_OPTS` or the
+  `tensorflow` logger level brings the output back.
+- The README gave an out-of-date test count (159 tests at 99.12 %); it now matches
+  `docs/testing.md`.
+
 ## [1.1.2] - 2026-09-23
 
 Maintenance release: a more robust vulnerability audit in CI. The application code and its
