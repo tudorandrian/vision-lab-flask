@@ -1,0 +1,63 @@
+name: Dependabot requirements
+
+# requirements.txt is exported from uv.lock (README route C) and the quality job fails when
+# the two differ. Dependabot updates uv.lock but edits requirements.txt as if it were a pip
+# file, so its pins can disagree with the lock, or even conflict with it. This job re-exports
+# the file on Dependabot's own uv branches and pushes the result as one extra commit.
+#
+# A push made with GITHUB_TOKEN starts CI on the pull request only after someone with write
+# access selects "Approve workflows to run" in the pull request, so CI runs on the bot's
+# commit, and the pull request can be merged, only after a maintainer approves.
+
+on:
+  pull_request:
+    paths: [uv.lock, requirements.txt]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-requirements-${{ github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep in sync with UV_VERSION in ci.yml: both must write the same requirements.txt.
+  UV_VERSION: "0.12.15"
+
+jobs:
+  regenerate:
+    # Only Dependabot's uv pull requests from this repository, never a fork or a person. The
+    # commit pushed below has a different actor, so it cannot start this job again.
+    if: >-
+      github.actor == 'dependabot[bot]'
+      && github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && startsWith(github.head_ref, 'dependabot/uv/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # The commit this event is about, not whatever the branch holds by now: if the branch
+      # has moved (a rebase, a later push), the push below is refused instead of building on it.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      # No cache: this job can push, so it restores nothing another run could have written.
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      # --frozen only reads uv.lock; nothing from the project is built, installed or run.
+      - run: uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt
+      - name: Commit requirements.txt if it changed
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- requirements.txt; then
+            echo "requirements.txt already matches uv.lock"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: re-export requirements.txt from uv.lock" -- requirements.txt
+          git push origin "HEAD:refs/heads/${HEAD_REF}"

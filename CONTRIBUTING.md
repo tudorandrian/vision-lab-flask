@@ -14,10 +14,13 @@ uv run playwright install chromium
 `--extra yolo` also lets you run the `-m models` tests. The `emotion` extra pulls in TensorFlow
 and is not needed for most changes; see README "Optional extras".
 
-- After any change to `uv.lock` (`uv add`, `uv lock --upgrade`, or a Dependabot update), run
+- After any change to `uv.lock` (`uv add`, `uv lock --upgrade`), run
   `uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt` and commit the
-  result; CI fails when the two files disagree. Dependabot cannot run this step, so its pull
-  requests need this one extra commit before they pass.
+  result; CI fails when the two files disagree. On Dependabot's uv pull requests the
+  `Dependabot requirements` workflow does this for you: it pushes one commit, and CI runs on it
+  after a maintainer selects "Approve workflows to run" in the pull request. After that commit
+  Dependabot no longer rebases the pull request; comment `@dependabot recreate` if it needs
+  refreshing, and the workflow runs again.
 
 ## Before you open a pull request
 

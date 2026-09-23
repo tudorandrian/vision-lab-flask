@@ -9,6 +9,9 @@ uses [Semantic Versioning](https://semver.org/).
 
 - Dependabot no longer proposes Docker base images with Python 3.14 or later, which the project
   does not support yet (`requires-python` is `>=3.12,<3.14`).
+- A `Dependabot requirements` workflow re-exports `requirements.txt` from `uv.lock` on Dependabot's
+  uv pull requests and pushes the result, so they no longer need a manual commit; a maintainer
+  approves the workflow runs on that commit.
 - `docs/testing.md` records the first `Emotion smoke` run: it passed on 2026-09-23 against 1.1.0.
 
 ## [1.1.0] - 2026-09-23
