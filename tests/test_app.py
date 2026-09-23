@@ -228,6 +228,19 @@ def test_result_page_is_never_cached_but_its_images_may_be(client: FlaskClient) 
     image.close()
 
 
+def test_image_cache_lifetime_never_exceeds_the_job_ttl(settings: Settings) -> None:
+    """A browser must not keep an image in its private cache after the job it
+    belongs to has been deleted; with a 1-minute TTL the cap is 60 s, not 300."""
+    short = replace(settings, job_ttl_minutes=1)
+    flask_app = create_app(short, FakeRegistry(short.weights_dir))
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    location = submit(client).headers["Location"]
+    image = client.get(f"{location}/files/original.jpg")
+    assert image.headers["Cache-Control"] == "private, max-age=60"
+    image.close()
+
+
 def test_pages_make_no_third_party_requests(client: FlaskClient) -> None:
     """The two external links in the footer (source and licence text) are places a
     reader can go, not resources the page fetches on its own; nothing else external

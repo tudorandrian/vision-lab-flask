@@ -56,6 +56,11 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
     store = JobStore(settings.jobs_dir, settings.job_ttl_minutes)
     slots = threading.BoundedSemaphore(settings.max_concurrent_jobs)
 
+    # Images may sit in a private browser cache for a few minutes. The cache
+    # lifetime is capped at the job TTL, so a cached copy can outlive the
+    # deleted job by at most that cap, min(5 minutes, TTL), not indefinitely.
+    image_max_age = min(300, settings.job_ttl_minutes * 60)
+
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = settings.max_upload_bytes
     app.config["MAX_FORM_MEMORY_SIZE"] = 64 * 1024
@@ -173,10 +178,10 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         try:
             # Another thread's purge_expired can remove the file between the
             # is_file() check above and send_file actually opening it.
-            response = send_file(path, max_age=300)
+            response = send_file(path, max_age=image_max_age)
         except FileNotFoundError:
             abort(404)
-        response.headers["Cache-Control"] = "private, max-age=300"
+        response.headers["Cache-Control"] = f"private, max-age={image_max_age}"
         return response
 
     @app.errorhandler(HTTPException)
