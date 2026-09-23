@@ -5,6 +5,40 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-23
+
+Hardening after an internal source review of 1.0.0: the same scope, with one new setting.
+
+### Added
+
+- `VISION_LAB_QUEUE_DEPTH` (default 4) bounds how many uploads may wait for the inference slot
+  at once; an upload arriving beyond that gets HTTP 503 immediately instead of occupying a server
+  thread for the wait. A free slot is taken at once and never counts against the depth, so with
+  a depth of 0 an upload never waits.
+- An `Emotion smoke` workflow (monthly and on demand) runs the real DeepFace no-face path
+  outside the required checks.
+
+### Changed
+
+- A job's retention time is measured from the moment its result is written, and a job still
+  being processed is never removed by a concurrent read; a directory left behind by a crashed
+  process is removed a day after the TTL.
+- `POST /jobs` refuses cross-site requests (`Sec-Fetch-Site: cross-site`, or an `Origin` naming
+  another host, compared case-insensitively) with HTTP 403. Command-line clients that send
+  neither header are unaffected.
+- The plain-pip route installs from a committed `requirements.txt` exported from `uv.lock`, with
+  the CPU-only PyTorch wheels pinned by name; CI fails if the two files drift apart.
+
+### Fixed
+
+- Scaling clamps the factor before resizing, so a 1600 px image rotated by 45 degrees and scaled
+  by 4.0 no longer allocates a 246 MB intermediate that the size cap would discard anyway. The
+  longer side is unchanged from 1.0.0; on a non-square image the shorter side can now differ by
+  one pixel, because it is rounded once instead of twice.
+- Result images are cached by the browser for at most the job's TTL, not a fixed five minutes.
+- `VISION_LAB_QUEUE_SECONDS=inf` (or any value above 3600) is refused at start-up instead of
+  failing with `OverflowError` on the first busy upload.
+
 ## [1.0.0] - 2026-09-17
 
 Same scope as the coursework version, rebuilt as a maintainable application.
@@ -82,6 +116,7 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 Coursework submission: a single-file Flask application with a Romanian interface. Kept as the
 tag `v0.1.0-coursework`.
 
-[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v0.1.0-coursework...v1.0.0
 [0.1.0-coursework]: https://github.com/tudorandrian/vision-lab-flask/tree/v0.1.0-coursework

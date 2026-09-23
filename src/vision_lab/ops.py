@@ -73,14 +73,23 @@ def transform(
         matrix[1, 2] += (new_height - 1) / 2 - (height - 1) / 2
         result = cv2.warpAffine(result, matrix, (new_width, new_height))
     if scale_factor != 1.0:
-        interpolation = cv2.INTER_AREA if scale_factor < 1.0 else cv2.INTER_LINEAR
         height, width = result.shape[:2]
+        # Apply the max_side cap to the target size before resizing, not after:
+        # resizing a rotated 1600 px image by 4.0 and then shrinking it would
+        # allocate a 9052 x 9052 x 3 array (246 MB) for nothing. Clamping the
+        # factor gives the same longer side with a single allocation. The
+        # shorter side is now rounded once instead of twice, so for a
+        # non-square image it can differ from the old result by one pixel,
+        # and a capped upscale is now a single INTER_LINEAR resize instead
+        # of an enlarge followed by a separate INTER_AREA shrink.
+        effective = min(scale_factor, max_side / max(height, width))
+        interpolation = cv2.INTER_AREA if effective < 1.0 else cv2.INTER_LINEAR
         dsize = (
-            max(1, round(width * scale_factor)),
-            max(1, round(height * scale_factor)),
+            max(1, round(width * effective)),
+            max(1, round(height * effective)),
         )
-        result = cv2.resize(result, dsize, interpolation=interpolation)
-        result = downscale_to(result, max_side)
+        if dsize != (width, height):
+            result = cv2.resize(result, dsize, interpolation=interpolation)
     x, y, crop_width, crop_height = crop
     if crop_width > 0 and crop_height > 0:
         height, width = result.shape[:2]

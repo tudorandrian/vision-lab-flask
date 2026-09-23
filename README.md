@@ -2,7 +2,7 @@
 
 A small web application that applies classical image processing and pretrained deep-learning
 vision models to an uploaded image, and shows every result next to the numbers behind it.
-Status: version 1.0.0, beta, maintained as a portfolio project.
+Status: version 1.1.0, beta, maintained as a portfolio project.
 
 [![CI](https://github.com/tudorandrian/vision-lab-flask/actions/workflows/ci.yml/badge.svg)](https://github.com/tudorandrian/vision-lab-flask/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue.svg)](LICENSE)
@@ -72,17 +72,20 @@ built image measures 2.08 GB. Stop with Ctrl+C, or `docker compose down` from an
 
 ### C. With plain pip
 
-Requires Python 3.12 or 3.13 (`pyproject.toml` sets `requires-python`).
+Requires Python 3.12 or 3.13 (`pyproject.toml` sets `requires-python`). `requirements.txt` is
+exported from `uv.lock`, so this route installs the same versions as uv; the CPU-only PyTorch
+wheels are pinned by name, so pip cannot pick a CUDA build from PyPI instead.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install . --extra-index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install --no-deps .
 .venv/bin/vision-lab
 ```
 
-On Windows the two commands are `.venv\Scripts\pip` and `.venv\Scripts\vision-lab`, and the first
-command is `python` instead of `python3`.
-This route resolves dependencies afresh instead of using `uv.lock`.
+On Windows the commands use `.venv\Scripts\pip` and `.venv\Scripts\vision-lab`, and `python`
+instead of `python3`. The optional extras are not in `requirements.txt`; install them with
+`pip install '.[yolo]'` or `'.[emotion]'` afterwards if you need them.
 
 ### Optional extras
 
@@ -106,9 +109,10 @@ Environment variables, all optional.
 | `VISION_LAB_MAX_UPLOAD_MB` | `8` | larger uploads get HTTP 413 |
 | `VISION_LAB_MAX_PIXELS` | `25000000` | larger images are rejected before decoding |
 | `VISION_LAB_MAX_SIDE` | `1600` | images are reduced to this long side before processing |
-| `VISION_LAB_JOB_TTL_MINUTES` | `60` | results older than this are deleted |
+| `VISION_LAB_JOB_TTL_MINUTES` | `60` | results are deleted this long after their processing finished |
 | `VISION_LAB_MAX_CONCURRENT_JOBS` | `1` | inferences running at the same time |
-| `VISION_LAB_QUEUE_SECONDS` | `15` | how long an upload waits for a free slot before HTTP 503 |
+| `VISION_LAB_QUEUE_SECONDS` | `15` | how long an upload waits for a free slot before HTTP 503 (0 to 3600) |
+| `VISION_LAB_QUEUE_DEPTH` | `4` | how many uploads may wait for a slot at once; further uploads get HTTP 503 immediately |
 | `VISION_LAB_ENABLE_EMOTION` | `0` | enables the `emotion` extra when it is installed |
 | `VISION_LAB_SOURCE_URL` | this repository | the link in the footer of every page; point it at your own fork if you modify and deploy the application (see Licences and credits) |
 
@@ -176,7 +180,8 @@ Timisoara: one Flask file, written in a few days. That version is kept under the
 [`v0.1.0-coursework`](https://github.com/tudorandrian/vision-lab-flask/tree/v0.1.0-coursework).
 Version 1.0.0 (2026) keeps the scope and rebuilds the engineering: a tested package, validated
 input, private storage, correct algorithms, reproducible dependencies and continuous integration.
-[CHANGELOG.md](CHANGELOG.md) lists what changed and why.
+Version 1.1.0 (2026) is a hardening release of the same scope. [CHANGELOG.md](CHANGELOG.md) lists
+what changed in each version and why.
 
 ## Licences and credits
 

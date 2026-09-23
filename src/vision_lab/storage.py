@@ -37,6 +37,12 @@ _JOB_ID = re.compile(r"[0-9a-f]{32}")
 _FILE_NAME = re.compile(r"[a-z0-9_]{1,40}\.(?:jpg|png)")
 _logger = logging.getLogger("vision_lab")
 
+# A job directory without result.json is either being written right now or was
+# left behind by a process that died mid-job. It is kept for this long beyond
+# the TTL before being treated as an orphan: longer than any cold model
+# download, short enough that a crash does not leave files around for ever.
+ORPHAN_GRACE_SECONDS = 24 * 3600
+
 
 class UploadError(ValueError):
     """The uploaded file is not an image this application accepts."""
@@ -202,7 +208,10 @@ class JobStore:
         shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
 
     def purge_expired(self, now: float | None = None) -> int:
-        """Delete jobs older than the TTL. Returns how many this call actually removed.
+        """Delete jobs whose result is older than the TTL. Returns how many this call removed.
+
+        A directory without result.json is in progress and is only removed
+        once it is ORPHAN_GRACE_SECONDS past the TTL.
 
         Every read purges expired jobs too (see app.py), so several request
         threads can race here. The lock makes one purge's listing and removals
@@ -223,11 +232,15 @@ class JobStore:
                 return 0
             for entry in entries:
                 try:
-                    is_expired = (
-                        entry.is_dir()
-                        and _JOB_ID.fullmatch(entry.name)
-                        and entry.stat().st_mtime < deadline
-                    )
+                    if not (entry.is_dir() and _JOB_ID.fullmatch(entry.name)):
+                        continue
+                    result = entry / "result.json"
+                    if result.is_file():
+                        # Completed: the TTL runs from the moment the result
+                        # was committed, which is what the result page promises.
+                        is_expired = result.stat().st_mtime < deadline
+                    else:
+                        is_expired = entry.stat().st_mtime < deadline - ORPHAN_GRACE_SECONDS
                 except FileNotFoundError:
                     continue  # already gone
                 except OSError:

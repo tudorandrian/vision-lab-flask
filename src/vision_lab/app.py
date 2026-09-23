@@ -6,6 +6,7 @@ import logging
 import re
 import threading
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import (
     Flask,
@@ -19,6 +20,7 @@ from flask import (
     url_for,
 )
 from flask.typing import ResponseReturnValue
+from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
 from vision_lab import __version__, catalog, params
@@ -36,6 +38,36 @@ log = logging.getLogger("vision_lab")
 # characters, so an 8-character truncation left only 2 hex characters of
 # the id, and made /jobs/<id> and /jobs/<id>/files/<name> log identically.
 _JOB_ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
+
+# Fetch Metadata values a browser sends for a request that this site itself
+# initiated ("none" is a navigation typed or bookmarked by the user).
+_ALLOWED_FETCH_SITES = {"same-origin", "same-site", "none"}
+
+
+def _is_cross_site(headers: Headers, host: str) -> bool:
+    """True when a browser reports that another site initiated this request.
+
+    CSP's form-action restricts the pages this application serves; it cannot
+    stop a page on another site from posting a form or a fetch() to a reachable
+    instance and making it burn CPU and disk. Sec-Fetch-Site is authoritative
+    when present (every current browser sends it). Without it, a mismatching
+    Origin is the fallback; "null" (sandboxed or opaque origins) counts as
+    another site. Only the host is compared, not the scheme, so a TLS
+    terminating proxy in front does not break the check; the comparison is
+    case-insensitive because host names are. A request without either header
+    (curl, scripts, tests) is not a browser request and passes. `headers` is
+    typed as `Headers` (Flask's `request.headers`, an `EnvironHeaders`) rather
+    than a generic mapping so the lookup stays case-insensitive the way HTTP
+    headers are meant to be read.
+    """
+    fetch_site = headers.get("Sec-Fetch-Site")
+    if fetch_site:
+        return fetch_site not in _ALLOWED_FETCH_SITES
+    origin = headers.get("Origin")
+    if origin:
+        return origin == "null" or urlsplit(origin).netloc.lower() != host.lower()
+    return False
+
 
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -55,6 +87,43 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
     registry = models or ModelRegistry(settings.weights_dir, settings.enable_emotion)
     store = JobStore(settings.jobs_dir, settings.job_ttl_minutes)
     slots = threading.BoundedSemaphore(settings.max_concurrent_jobs)
+
+    # Images may sit in a private browser cache for a few minutes. The cache
+    # lifetime is capped at the job TTL, so a cached copy can outlive the
+    # deleted job by at most that cap, min(5 minutes, TTL), not indefinitely.
+    image_max_age = min(300, settings.job_ttl_minutes * 60)
+
+    # The semaphore bounds how many jobs run; this counter bounds how many
+    # requests may actually block waiting for it (a free slot is taken with a
+    # non-blocking acquire first, so an idle server never counts against the
+    # depth, even when queue_depth is 0). Without this, every waitress thread
+    # can sit in slots.acquire() for queue_seconds while further request
+    # bodies queue up behind them, and /healthz and result pages stall too.
+    waiting = 0
+    admission = threading.Lock()
+
+    def enter_queue() -> bool:
+        nonlocal waiting
+        with admission:
+            if waiting >= settings.queue_depth:
+                return False
+            waiting += 1
+            return True
+
+    def leave_queue() -> None:
+        nonlocal waiting
+        with admission:
+            waiting -= 1
+
+    def busy_page() -> Response:
+        page = render_template(
+            "error.html",
+            status=503,
+            message="The server is busy processing another image. Please try again shortly.",
+        )
+        response = make_response(page, 503)
+        response.headers["Retry-After"] = "10"
+        return response
 
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = settings.max_upload_bytes
@@ -97,6 +166,8 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.post("/jobs")
     def submit() -> ResponseReturnValue:
+        if _is_cross_site(request.headers, request.host):
+            abort(403)
         upload = request.files.get("image")
         if upload is None or not upload.filename:
             return form_page(400, {"image": "Choose an image to upload."})
@@ -114,17 +185,20 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         except UploadError as error:
             return form_page(400, {"image": str(error)})
 
-        # Wait briefly for the inference slot, then give up: a bounded queue keeps
-        # memory and response times predictable however many uploads arrive at once.
-        if not slots.acquire(timeout=settings.queue_seconds):
-            page = render_template(
-                "error.html",
-                status=503,
-                message="The server is busy processing another image. Please try again shortly.",
-            )
-            response = make_response(page, 503)
-            response.headers["Retry-After"] = "10"
-            return response
+        # Take a free slot immediately if there is one; only an upload that would
+        # otherwise have to wait counts against queue_depth, then waits briefly for
+        # the slot and gives up: a bounded queue keeps memory and response times
+        # predictable however many uploads arrive at once.
+        acquired = slots.acquire(blocking=False)
+        if not acquired:
+            if not enter_queue():
+                return busy_page()
+            try:
+                acquired = slots.acquire(timeout=settings.queue_seconds)
+            finally:
+                leave_queue()
+            if not acquired:
+                return busy_page()
         try:
             try:
                 image = decode_pending(pending, max_side=settings.max_side)
@@ -173,10 +247,10 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         try:
             # Another thread's purge_expired can remove the file between the
             # is_file() check above and send_file actually opening it.
-            response = send_file(path, max_age=300)
+            response = send_file(path, max_age=image_max_age)
         except FileNotFoundError:
             abort(404)
-        response.headers["Cache-Control"] = "private, max-age=300"
+        response.headers["Cache-Control"] = f"private, max-age={image_max_age}"
         return response
 
     @app.errorhandler(HTTPException)
@@ -184,6 +258,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         status = error.code or 500
         messages = {
             404: "That page or result does not exist. Results are deleted after a while.",
+            403: "This form cannot be submitted from another site.",
             405: "That action is not available here.",
             413: f"The upload is larger than {settings.max_upload_bytes // (1024 * 1024)} MB.",
         }

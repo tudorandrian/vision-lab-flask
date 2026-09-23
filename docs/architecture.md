@@ -3,12 +3,15 @@
 ## Request flow
 
 ```
-POST /jobs  ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
+POST /jobs  ->  cross-site request         Sec-Fetch-Site, else Origin against the host     -> 403
+            ->  body over the limit        waitress, then Flask's MAX_CONTENT_LENGTH        -> 413
             ->  no image field             request.files.get("image") is empty              -> 400
             ->  params.parse_params        every field validated, all errors at once         -> 400
             ->  storage.validate_upload    header only: format allow-list (MPO included),
                                             pixel limit from the header                      -> 400
-            ->  inference slot             bounded wait, then give up                        -> 503 + Retry-After, the HTML error page
+            ->  inference slot             a free slot is taken at once; otherwise at most
+                                            VISION_LAB_QUEUE_DEPTH uploads wait up to
+                                            VISION_LAB_QUEUE_SECONDS                        -> 503 + Retry-After, the HTML error page
             ->  storage.decode_pending     draft decode, EXIF orientation, colour
                                             conversion, downscale                             -> 400
             ->  purge + pipeline.run_job   expired jobs removed, then ops and models run      -> 500, job discarded, on failure
@@ -74,8 +77,10 @@ source, since the upstream link cannot do that for them.
 and let the query string choose the file to process. A job now runs once, writes `result.json`,
 and a GET only reads it. Expired jobs are purged once the inference slot for a new upload has been
 acquired (so an upload refused with 503 does not purge) and again on every request for a result or
-one of its files. A lock keeps a purge's listing and removals atomic against a concurrent purge in
-the same process.
+one of its files. The clock starts when `result.json` is written, so a job still being processed
+(its directory exists, its result does not) is never purged by a concurrent read; a directory that
+never receives a result, because the process died, is removed a day after the TTL. A lock keeps a
+purge's listing and removals atomic against a concurrent purge in the same process.
 
 **No JavaScript.** The interface is a form and a result page. Leaving scripts out allows
 `script-src 'none'`, removes a class of bugs, and keeps the pages usable everywhere.
@@ -83,7 +88,21 @@ the same process.
 **One inference at a time.** A CPU model saturates the cores it is given; running two at once
 makes both slower and doubles peak memory. Uploads wait up to `VISION_LAB_QUEUE_SECONDS` for the
 slot and then receive 503 with `Retry-After` on the same HTML error page used for other failures,
-so load degrades predictably instead of crashing.
+so load degrades predictably instead of crashing. The wait itself is bounded too: at most
+`VISION_LAB_QUEUE_DEPTH` uploads may be waiting for the slot; an upload arriving beyond that gets
+the busy page at once. This is the application's admission control; waitress still accepts and
+buffers connections independently of it (its own connection and body limits apply), so a shared
+deployment needs per-client rate limiting at the reverse proxy in front, which this application
+does not attempt.
+
+**The scale cap is applied before the resize allocates.** `ops.transform` clamps the requested
+scale factor so that the target's longer side never exceeds `VISION_LAB_MAX_SIDE`, instead of
+resizing first and shrinking afterwards. Peak memory is the difference: a 1600 px image rotated by
+45 degrees is 2263 px on a side, and scaling that by the permitted maximum of 4.0 would allocate a
+9052 x 9052 x 3 array (246 MB) that the cap would discard a moment later. The longer side comes
+out the same as before; the shorter side is now rounded once instead of twice, so for a non-square
+image it can differ by one pixel, and a capped upscale is now a single linear resize instead of an
+enlarge followed by a separate area-average shrink.
 
 **waitress bounds the request body.** waitress defaults its own request body limit to 1 GB and
 buffers the whole body before Flask's `MAX_CONTENT_LENGTH` can answer 413. `__main__.py` sets

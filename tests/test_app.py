@@ -153,6 +153,47 @@ def test_oversized_upload_gives_413(client: FlaskClient) -> None:
     assert "larger than" in response.get_data(as_text=True)
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "cross-site", "Origin": "http://localhost"},
+        {"Origin": "https://evil.example"},
+        {"Origin": "null"},
+    ],
+)
+def test_cross_site_uploads_are_refused_with_403(
+    client: FlaskClient, settings: Settings, headers: dict[str, str]
+) -> None:
+    """CSP's form-action only governs pages this app serves; another site can
+    still post to a reachable instance. Fetch Metadata (sent by every current
+    browser) decides first; the Origin header is the fallback."""
+    data = {"image": (io.BytesIO(png_bytes()), "photo.png")}
+    response = client.post("/jobs", data=data, content_type="multipart/form-data", headers=headers)
+    assert response.status_code == 403
+    assert "another site" in response.get_data(as_text=True)
+    assert not settings.jobs_dir.is_dir() or not any(settings.jobs_dir.iterdir())
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},  # curl and other API clients send neither header
+        {"Sec-Fetch-Site": "same-origin"},
+        {"Sec-Fetch-Site": "none"},  # typed into the address bar or a bookmark
+        {"Origin": "http://localhost"},  # the test client's host
+        {"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost"},
+        {"Origin": "http://LOCALHOST"},  # host names are case-insensitive
+    ],
+)
+def test_same_site_and_headerless_uploads_are_accepted(
+    client: FlaskClient, headers: dict[str, str]
+) -> None:
+    data = {"image": (io.BytesIO(png_bytes()), "photo.png")}
+    response = client.post("/jobs", data=data, content_type="multipart/form-data", headers=headers)
+    assert response.status_code == 303
+
+
 def test_user_input_is_escaped(client: FlaskClient) -> None:
     response = submit(client, kernel_size="<script>alert(1)</script>")
     assert response.status_code == 400
@@ -228,6 +269,19 @@ def test_result_page_is_never_cached_but_its_images_may_be(client: FlaskClient) 
     image.close()
 
 
+def test_image_cache_lifetime_never_exceeds_the_job_ttl(settings: Settings) -> None:
+    """A browser must not keep an image in its private cache after the job it
+    belongs to has been deleted; with a 1-minute TTL the cap is 60 s, not 300."""
+    short = replace(settings, job_ttl_minutes=1)
+    flask_app = create_app(short, FakeRegistry(short.weights_dir))
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    location = submit(client).headers["Location"]
+    image = client.get(f"{location}/files/original.jpg")
+    assert image.headers["Cache-Control"] == "private, max-age=60"
+    image.close()
+
+
 def test_pages_make_no_third_party_requests(client: FlaskClient) -> None:
     """The two external links in the footer (source and licence text) are places a
     reader can go, not resources the page fetches on its own; nothing else external
@@ -288,6 +342,103 @@ def test_second_concurrent_job_gets_503_with_retry_after(settings: Settings) -> 
     assert "Traceback" not in busy_html
     assert first == [303]
     assert submit(flask_app.test_client()).status_code == 303, "the slot is released afterwards"
+
+
+def test_uploads_beyond_the_queue_depth_are_refused_at_once(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Eight waitress threads each waiting queue_seconds for one slot would
+    stall health checks and result pages. Only queue_depth uploads may wait;
+    the next one gets the busy page immediately, not after the timeout."""
+    settings = replace(settings, queue_seconds=5.0, queue_depth=1)
+    entered, release = threading.Event(), threading.Event()
+    waiting_for_slot = threading.Event()
+
+    class Slow(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    class ObservingSemaphore(threading.BoundedSemaphore):
+        """Flags when a caller reaches the blocking, timed acquire (as opposed
+        to the initial non-blocking one), so the test can wait for that instead
+        of sleeping a fixed, potentially too-short amount of time."""
+
+        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+            if timeout is not None:
+                waiting_for_slot.set()
+            return super().acquire(blocking, timeout)
+
+    monkeypatch.setattr(app_module.threading, "BoundedSemaphore", ObservingSemaphore)
+
+    flask_app = create_app(settings, Slow(settings.weights_dir))
+    flask_app.config["TESTING"] = True
+    statuses: list[int] = []
+
+    def upload() -> None:
+        statuses.append(submit(flask_app.test_client()).status_code)
+
+    running = threading.Thread(target=upload)
+    waiting = threading.Thread(target=upload)
+    try:
+        running.start()
+        assert entered.wait(timeout=10)
+        waiting.start()
+        assert waiting_for_slot.wait(timeout=10), "the second request never reached slots.acquire"
+        started = time.perf_counter()
+        refused = submit(flask_app.test_client())
+        elapsed = time.perf_counter() - started
+        assert (refused.status_code, refused.headers["Retry-After"]) == (503, "10")
+        assert elapsed < 2.0, "refused immediately, not after queue_seconds"
+    finally:
+        release.set()
+        if running.ident is not None:
+            running.join(timeout=10)
+        if waiting.ident is not None:
+            waiting.join(timeout=10)
+    assert sorted(statuses) == [303, 303], "the running and the waiting upload both complete"
+    assert submit(flask_app.test_client()).status_code == 303, "the queue is empty again"
+
+
+def test_zero_queue_depth_still_processes_an_upload_when_the_server_is_idle(
+    settings: Settings,
+) -> None:
+    """queue_depth=0 means an upload never waits for a busy slot, not that the
+    server refuses every upload: an idle server must still take the free slot
+    directly instead of treating queue_depth=0 as always full."""
+    settings = replace(settings, queue_depth=0)
+    client = create_app(settings, FakeRegistry(settings.weights_dir)).test_client()
+    assert submit(client).status_code == 303
+
+
+def test_zero_queue_depth_refuses_a_second_upload_immediately_while_busy(
+    settings: Settings,
+) -> None:
+    settings = replace(settings, queue_seconds=5.0, queue_depth=0)
+    entered, release = threading.Event(), threading.Event()
+
+    class Slow(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    flask_app = create_app(settings, Slow(settings.weights_dir))
+    flask_app.config["TESTING"] = True
+    running = threading.Thread(target=lambda: submit(flask_app.test_client()))
+    try:
+        running.start()
+        assert entered.wait(timeout=10)
+        started = time.perf_counter()
+        refused = submit(flask_app.test_client())
+        elapsed = time.perf_counter() - started
+        assert (refused.status_code, refused.headers["Retry-After"]) == (503, "10")
+        assert elapsed < 2.0, "refused immediately, well under queue_seconds"
+    finally:
+        release.set()
+        if running.ident is not None:
+            running.join(timeout=10)
 
 
 def test_decoding_waits_for_the_inference_slot(
@@ -414,7 +565,8 @@ def test_expired_jobs_are_purged_on_the_next_upload(
     old = submit(client)
     job_dir = settings.jobs_dir / job_id_of(old)
     past = time.time() - 2 * 3600
-    os.utime(job_dir, (past, past))
+    for target in (job_dir, job_dir / "result.json"):
+        os.utime(target, (past, past))
     submit(client)
     assert client.get(old.headers["Location"]).status_code == 404
     assert not job_dir.exists()
@@ -427,7 +579,8 @@ def test_expired_results_are_404_without_a_new_upload(
     location = old.headers["Location"]
     job_dir = settings.jobs_dir / job_id_of(old)
     past = time.time() - 2 * 3600
-    os.utime(job_dir, (past, past))
+    for target in (job_dir, job_dir / "result.json"):
+        os.utime(target, (past, past))
     assert client.get(location).status_code == 404
     assert client.get(f"{location}/files/original.jpg").status_code == 404
     assert not job_dir.exists()
@@ -444,8 +597,10 @@ def test_a_stuck_expired_job_directory_does_not_break_other_requests(
     """
     old = submit(client)
     stuck_id = job_id_of(old)
+    job_dir = settings.jobs_dir / stuck_id
     past = time.time() - 2 * 3600
-    os.utime(settings.jobs_dir / stuck_id, (past, past))
+    for target in (job_dir, job_dir / "result.json"):
+        os.utime(target, (past, past))
 
     real_rmtree = shutil.rmtree
 
@@ -460,6 +615,40 @@ def test_a_stuck_expired_job_directory_does_not_break_other_requests(
     assert fresh.status_code == 303
     assert client.get(fresh.headers["Location"]).status_code == 200
     assert client.get("/").status_code == 200
+
+
+def test_a_result_read_during_a_slow_job_does_not_purge_that_job(settings: Settings) -> None:
+    """With a 1-minute TTL and a cold model download, the job directory can be
+    older than the TTL before result.json exists; a concurrent GET's purge
+    must leave it alone, and the upload must still finish with 303."""
+    settings = replace(settings, job_ttl_minutes=1)
+    entered, release = threading.Event(), threading.Event()
+
+    class Stalled(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    flask_app = create_app(settings, Stalled(settings.weights_dir))
+    flask_app.config["TESTING"] = True
+    outcome: list[int] = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(submit(flask_app.test_client()).status_code)
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=10)
+        (job_dir,) = [entry for entry in settings.jobs_dir.iterdir() if entry.is_dir()]
+        past = time.time() - 600  # the directory looks ten minutes old, past the 1-minute TTL
+        os.utime(job_dir, (past, past))
+        assert flask_app.test_client().get(f"/jobs/{job_dir.name}").status_code == 404
+        assert job_dir.exists(), "a read while the job is running must not delete it"
+    finally:
+        release.set()
+        worker.join(timeout=10)
+    assert outcome == [303]
+    assert flask_app.test_client().get(f"/jobs/{job_dir.name}").status_code == 200
 
 
 def test_the_500_log_redacts_the_job_id_but_keeps_the_route_readable(

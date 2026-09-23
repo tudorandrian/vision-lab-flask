@@ -39,18 +39,23 @@ def _int(source: Mapping[str, str], name: str, default: str, minimum: int) -> in
     return value
 
 
-def _float(source: Mapping[str, str], name: str, default: str, minimum: float) -> float:
+def _float(
+    source: Mapping[str, str], name: str, default: str, minimum: float, maximum: float
+) -> float:
     raw = source.get(name, default)
     try:
         value = float(raw)
     except ValueError as error:
         raise SettingsError(
-            f"{name}={raw!r} is not a number; it must be a number >= {minimum}."
+            f"{name}={raw!r} is not a number; it must be a number between {minimum} and {maximum}."
         ) from error
     if math.isnan(value):
         raise SettingsError(f"{name}={raw!r} must be a real number, not NaN.")
-    if value < minimum:
-        raise SettingsError(f"{name}={value} must be a number >= {minimum}.")
+    if math.isinf(value):
+        # threading.Lock.acquire(timeout=inf) raises OverflowError on CPython.
+        raise SettingsError(f"{name}={raw!r} must be a finite number, at most {maximum}.")
+    if not minimum <= value <= maximum:
+        raise SettingsError(f"{name}={value} must be a number between {minimum} and {maximum}.")
     return value
 
 
@@ -65,6 +70,7 @@ class Settings:
     job_ttl_minutes: int = 60
     max_concurrent_jobs: int = 1
     queue_seconds: float = 15.0
+    queue_depth: int = 4
     enable_emotion: bool = False
     source_url: str = DEFAULT_SOURCE_URL
 
@@ -88,7 +94,8 @@ class Settings:
             max_side=_int(source, "VISION_LAB_MAX_SIDE", "1600", minimum=64),
             job_ttl_minutes=_int(source, "VISION_LAB_JOB_TTL_MINUTES", "60", minimum=1),
             max_concurrent_jobs=_int(source, "VISION_LAB_MAX_CONCURRENT_JOBS", "1", minimum=1),
-            queue_seconds=_float(source, "VISION_LAB_QUEUE_SECONDS", "15", minimum=0),
+            queue_seconds=_float(source, "VISION_LAB_QUEUE_SECONDS", "15", minimum=0, maximum=3600),
+            queue_depth=_int(source, "VISION_LAB_QUEUE_DEPTH", "4", minimum=0),
             enable_emotion=source.get("VISION_LAB_ENABLE_EMOTION", "0").strip().lower() in _TRUE,
             source_url=source.get("VISION_LAB_SOURCE_URL", DEFAULT_SOURCE_URL),
         )

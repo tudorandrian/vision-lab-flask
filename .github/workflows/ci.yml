@@ -34,6 +34,12 @@ jobs:
       - run: uv run mypy
       - run: uv run bandit -q -r src
       - run: uv run python scripts/check_text.py
+      # requirements.txt is the plain-pip route (README, route C). It is exported from
+      # uv.lock and must never drift from it; regenerate it after any lock change.
+      - name: Check that requirements.txt matches uv.lock
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt
+          git diff --exit-code -- requirements.txt
       - run: uv run python scripts/gen_algorithms_doc.py --check
       # torch and torchvision carry a +cpu local version, which PyPI advisories cannot
       # match; pip-audit lists them as skipped. Dependabot alerts cover them instead.
