@@ -2009,7 +2009,7 @@ wheels = [
 
 [[package]]
 name = "ultralytics"
-version = "8.4.154"
+version = "8.4.156"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -2030,9 +2030,9 @@ dependencies = [
     { name = "ultralytics-platform" },
     { name = "ultralytics-thop" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b0/21/960cabcc9ce40a866ee7a13188c3651b623b37c1930ee38e44035f2a3c89/ultralytics-8.4.154.tar.gz", hash = "sha256:d323477784202cec86176cd8fb40c898e3af2795801a48dc5e3167e4fee48f31", size = 1230595, upload-time = "2026-09-16T17:11:09.816Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/00/2d6182fc24e79b12a57485bed53ea0a7cf0b23a9928ee268e3b3fe0c0793/ultralytics-8.4.156.tar.gz", hash = "sha256:bc14b3980666df56042d96a5735f45721572591669fbca78b625f435f5af4aa0", size = 1231632, upload-time = "2026-09-19T21:10:07.759Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/68/758bc77c23775d39a11e696c8e58ce115af17c51b6a8f7fe50da3a2766a4/ultralytics-8.4.154-py3-none-any.whl", hash = "sha256:8c3c1678c3d67afb1af41eeedd7f74256f2d27704a3e0d570888f36c4c459532", size = 1447306, upload-time = "2026-09-16T17:11:04.884Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/3a/5ef847347eeedff4f006574aaf3b531e1915cdcd10eaac0d2ded93840413/ultralytics-8.4.156-py3-none-any.whl", hash = "sha256:f54c5f9706790e993a5517f77b44337daa955848acd2cfd160b4ba4acc11fe3a", size = 1447979, upload-time = "2026-09-19T21:10:03.027Z" },
 ]
 
 [[package]]
