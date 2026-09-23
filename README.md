@@ -108,7 +108,7 @@ Environment variables, all optional.
 | `VISION_LAB_MAX_SIDE` | `1600` | images are reduced to this long side before processing |
 | `VISION_LAB_JOB_TTL_MINUTES` | `60` | results older than this are deleted |
 | `VISION_LAB_MAX_CONCURRENT_JOBS` | `1` | inferences running at the same time |
-| `VISION_LAB_QUEUE_SECONDS` | `15` | how long an upload waits for a free slot before HTTP 503 |
+| `VISION_LAB_QUEUE_SECONDS` | `15` | how long an upload waits for a free slot before HTTP 503 (0 to 3600) |
 | `VISION_LAB_ENABLE_EMOTION` | `0` | enables the `emotion` extra when it is installed |
 | `VISION_LAB_SOURCE_URL` | this repository | the link in the footer of every page; point it at your own fork if you modify and deploy the application (see Licences and credits) |
 

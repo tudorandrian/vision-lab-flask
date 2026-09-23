@@ -51,6 +51,9 @@ def test_environment_overrides(tmp_path: Path) -> None:
         ({"VISION_LAB_QUEUE_SECONDS": "nan"}, "VISION_LAB_QUEUE_SECONDS"),
         ({"VISION_LAB_QUEUE_SECONDS": "-1"}, "VISION_LAB_QUEUE_SECONDS"),
         ({"VISION_LAB_QUEUE_SECONDS": "soon"}, "VISION_LAB_QUEUE_SECONDS"),
+        ({"VISION_LAB_QUEUE_SECONDS": "inf"}, "VISION_LAB_QUEUE_SECONDS"),
+        ({"VISION_LAB_QUEUE_SECONDS": "1e999"}, "VISION_LAB_QUEUE_SECONDS"),
+        ({"VISION_LAB_QUEUE_SECONDS": "3601"}, "VISION_LAB_QUEUE_SECONDS"),
     ],
 )
 def test_invalid_settings_name_the_variable_and_are_rejected_at_start_up(
@@ -76,3 +79,10 @@ def test_a_negative_queue_seconds_message_does_not_mention_nan() -> None:
 def test_a_nan_queue_seconds_message_does_mention_nan() -> None:
     with pytest.raises(SettingsError, match="NaN"):
         Settings.from_env({"VISION_LAB_QUEUE_SECONDS": "nan"})
+
+
+def test_an_infinite_queue_timeout_is_rejected_because_acquire_cannot_take_it() -> None:
+    """threading.Lock.acquire(timeout=inf) raises OverflowError on CPython; the
+    setting must be refused at start-up, not on the first busy upload."""
+    with pytest.raises(SettingsError, match="finite"):
+        Settings.from_env({"VISION_LAB_QUEUE_SECONDS": "inf"})
