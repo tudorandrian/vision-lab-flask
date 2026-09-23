@@ -19,6 +19,8 @@ updates:
       # Dependabot would only change requirements.txt. Remove once sympy allows mpmath 1.4.
       - dependency-name: mpmath
         versions: [">= 1.4"]
+  # Workflows pin every action to a full commit SHA with its version as a comment
+  # ("@<sha> # v7.0.1"); Dependabot updates both together.
   - package-ecosystem: github-actions
     directory: /
     schedule:

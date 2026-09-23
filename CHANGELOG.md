@@ -15,6 +15,8 @@ uses [Semantic Versioning](https://semver.org/).
   Dependabot keeps rebasing the pull request.
 - Dependabot ignores `mpmath` 1.4 and later while `sympy` (required by `torch`) requires
   `mpmath<1.4`; such updates could only change `requirements.txt`, not `uv.lock`.
+- Every GitHub Action in the workflows is pinned to a full commit SHA, with its version as a
+  comment, instead of a movable tag such as `@v7`; Dependabot keeps both up to date.
 - `docs/testing.md` records the first `Emotion smoke` run: it passed on 2026-09-23 against 1.1.0.
 
 ## [1.1.0] - 2026-09-23

@@ -27,7 +27,7 @@ Within that scope the application defends against:
 | Cross-site scripting | autoescaped templates, no JavaScript, strict Content-Security-Policy |
 | Cross-site request forgery (another site posting work to a reachable instance) | `POST /jobs` refuses requests whose `Sec-Fetch-Site` is `cross-site`, or whose `Origin` names another host, with HTTP 403; requests without either header (command-line clients) are accepted |
 | Information disclosure on errors | generic error pages; details go to the server log only, except a body far over the upload limit, which waitress itself refuses with a plain page naming the configured byte limit, before the request reaches this application |
-| Supply chain | locked dependencies, weekly automated updates, vulnerability audit and secret scanning in CI, vendored front-end assets |
+| Supply chain | locked dependencies, weekly automated updates, vulnerability audit and secret scanning in CI, GitHub Actions pinned to full commit SHAs, vendored front-end assets |
 
 Out of scope: denial of service by a client that is allowed to upload continuously, and the
 statistical accuracy or bias of the pretrained models.
