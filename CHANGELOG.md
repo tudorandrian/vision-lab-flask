@@ -5,6 +5,11 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-23
+
+Maintenance release: a more robust vulnerability audit in CI. The application code and its
+dependencies are unchanged.
+
 ### Changed
 
 - The vulnerability audit in CI retries when the PyPI vulnerability service fails (an HTTP 5xx or
@@ -146,7 +151,8 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 Coursework submission: a single-file Flask application with a Romanian interface. Kept as the
 tag `v0.1.0-coursework`.
 
-[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v0.1.0-coursework...v1.0.0
