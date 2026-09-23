@@ -54,6 +54,9 @@ returns an image:
   acquired; a bad parameter, an unreadable file or an oversized upload all fail immediately with
   their specific 400 or 413, however long the slot is held, instead of waiting out the queue and
   coming back as a slow 503 (`test_pre_slot_checks_stay_fast_while_the_slot_is_held`).
+- Cross-site protection: a `POST /jobs` carrying `Sec-Fetch-Site: cross-site` or a foreign
+  `Origin` is refused with HTTP 403 and creates nothing; same-origin, `none` and headerless
+  requests are accepted.
 - Headers on every response, no cookies, no third-party URLs in any page.
 - Viewing a result three times calls the detector once.
 - Header-only decompression bombs are rejected cleanly on both sides of Pillow's own threshold,

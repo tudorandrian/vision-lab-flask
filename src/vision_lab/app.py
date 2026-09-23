@@ -6,6 +6,7 @@ import logging
 import re
 import threading
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import (
     Flask,
@@ -19,6 +20,7 @@ from flask import (
     url_for,
 )
 from flask.typing import ResponseReturnValue
+from werkzeug.datastructures import Headers
 from werkzeug.exceptions import HTTPException
 
 from vision_lab import __version__, catalog, params
@@ -36,6 +38,36 @@ log = logging.getLogger("vision_lab")
 # characters, so an 8-character truncation left only 2 hex characters of
 # the id, and made /jobs/<id> and /jobs/<id>/files/<name> log identically.
 _JOB_ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
+
+# Fetch Metadata values a browser sends for a request that this site itself
+# initiated ("none" is a navigation typed or bookmarked by the user).
+_ALLOWED_FETCH_SITES = {"same-origin", "same-site", "none"}
+
+
+def _is_cross_site(headers: Headers, host: str) -> bool:
+    """True when a browser reports that another site initiated this request.
+
+    CSP's form-action restricts the pages this application serves; it cannot
+    stop a page on another site from posting a form or a fetch() to a reachable
+    instance and making it burn CPU and disk. Sec-Fetch-Site is authoritative
+    when present (every current browser sends it). Without it, a mismatching
+    Origin is the fallback; "null" (sandboxed or opaque origins) counts as
+    another site. Only the host is compared, not the scheme, so a TLS
+    terminating proxy in front does not break the check; the comparison is
+    case-insensitive because host names are. A request without either header
+    (curl, scripts, tests) is not a browser request and passes. `headers` is
+    typed as `Headers` (Flask's `request.headers`, an `EnvironHeaders`) rather
+    than a generic mapping so the lookup stays case-insensitive the way HTTP
+    headers are meant to be read.
+    """
+    fetch_site = headers.get("Sec-Fetch-Site")
+    if fetch_site:
+        return fetch_site not in _ALLOWED_FETCH_SITES
+    origin = headers.get("Origin")
+    if origin:
+        return origin == "null" or urlsplit(origin).netloc.lower() != host.lower()
+    return False
+
 
 _SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -102,6 +134,8 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
 
     @app.post("/jobs")
     def submit() -> ResponseReturnValue:
+        if _is_cross_site(request.headers, request.host):
+            abort(403)
         upload = request.files.get("image")
         if upload is None or not upload.filename:
             return form_page(400, {"image": "Choose an image to upload."})
@@ -189,6 +223,7 @@ def create_app(settings: Settings | None = None, models: ModelRegistry | None = 
         status = error.code or 500
         messages = {
             404: "That page or result does not exist. Results are deleted after a while.",
+            403: "This form cannot be submitted from another site.",
             405: "That action is not available here.",
             413: f"The upload is larger than {settings.max_upload_bytes // (1024 * 1024)} MB.",
         }

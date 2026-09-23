@@ -153,6 +153,47 @@ def test_oversized_upload_gives_413(client: FlaskClient) -> None:
     assert "larger than" in response.get_data(as_text=True)
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "cross-site", "Origin": "http://localhost"},
+        {"Origin": "https://evil.example"},
+        {"Origin": "null"},
+    ],
+)
+def test_cross_site_uploads_are_refused_with_403(
+    client: FlaskClient, settings: Settings, headers: dict[str, str]
+) -> None:
+    """CSP's form-action only governs pages this app serves; another site can
+    still post to a reachable instance. Fetch Metadata (sent by every current
+    browser) decides first; the Origin header is the fallback."""
+    data = {"image": (io.BytesIO(png_bytes()), "photo.png")}
+    response = client.post("/jobs", data=data, content_type="multipart/form-data", headers=headers)
+    assert response.status_code == 403
+    assert "another site" in response.get_data(as_text=True)
+    assert not settings.jobs_dir.is_dir() or not any(settings.jobs_dir.iterdir())
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},  # curl and other API clients send neither header
+        {"Sec-Fetch-Site": "same-origin"},
+        {"Sec-Fetch-Site": "none"},  # typed into the address bar or a bookmark
+        {"Origin": "http://localhost"},  # the test client's host
+        {"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost"},
+        {"Origin": "http://LOCALHOST"},  # host names are case-insensitive
+    ],
+)
+def test_same_site_and_headerless_uploads_are_accepted(
+    client: FlaskClient, headers: dict[str, str]
+) -> None:
+    data = {"image": (io.BytesIO(png_bytes()), "photo.png")}
+    response = client.post("/jobs", data=data, content_type="multipart/form-data", headers=headers)
+    assert response.status_code == 303
+
+
 def test_user_input_is_escaped(client: FlaskClient) -> None:
     response = submit(client, kernel_size="<script>alert(1)</script>")
     assert response.status_code == 400
