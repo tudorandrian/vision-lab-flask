@@ -85,6 +85,15 @@ makes both slower and doubles peak memory. Uploads wait up to `VISION_LAB_QUEUE_
 slot and then receive 503 with `Retry-After` on the same HTML error page used for other failures,
 so load degrades predictably instead of crashing.
 
+**The scale cap is applied before the resize allocates.** `ops.transform` clamps the requested
+scale factor so that the target's longer side never exceeds `VISION_LAB_MAX_SIDE`, instead of
+resizing first and shrinking afterwards. Peak memory is the difference: a 1600 px image rotated by
+45 degrees is 2263 px on a side, and scaling that by the permitted maximum of 4.0 would allocate a
+9052 x 9052 x 3 array (246 MB) that the cap would discard a moment later. The longer side comes
+out the same as before; the shorter side is now rounded once instead of twice, so for a non-square
+image it can differ by one pixel, and a capped upscale is now a single linear resize instead of an
+enlarge followed by a separate area-average shrink.
+
 **waitress bounds the request body.** waitress defaults its own request body limit to 1 GB and
 buffers the whole body before Flask's `MAX_CONTENT_LENGTH` can answer 413. `__main__.py` sets
 `max_request_body_size` to the upload limit plus a 1 MiB margin for multipart framing and the

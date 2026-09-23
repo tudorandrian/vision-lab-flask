@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import cv2
 import numpy as np
 import pytest
@@ -77,6 +79,54 @@ def test_upscaling_is_capped_by_max_side(square: np.ndarray) -> None:
 def test_downscaling_a_tiny_image_never_rounds_to_zero() -> None:
     tiny = np.zeros((4, 4, 3), dtype=np.uint8)
     assert ops.transform(tiny, scale_factor=0.1).shape[:2] == (1, 1)
+
+
+def test_scaling_never_allocates_more_than_max_side(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1600 px rotated by 45 degrees is 2263 px; scaled by 4.0 that would be a
+    9052 x 9052 x 3 array (246 MB) thrown away by the cap a moment later. The
+    cap must be applied to the target size before the resize allocates."""
+    seen: list[tuple[int, int]] = []
+    real_resize = ops.cv2.resize
+
+    def recording_resize(image: np.ndarray, dsize: tuple[int, int], **kwargs: Any) -> np.ndarray:
+        seen.append(dsize)
+        return real_resize(image, dsize, **kwargs)
+
+    monkeypatch.setattr(ops.cv2, "resize", recording_resize)
+    image = np.zeros((1600, 1600, 3), dtype=np.uint8)
+    result = ops.transform(image, rotation_angle=45, scale_factor=4.0, max_side=1600)
+    assert max(result.shape[:2]) == 1600
+    assert seen, "the scaled image is still produced by one resize"
+    assert all(max(dsize) <= 1600 for dsize in seen), seen
+
+
+def test_scaling_below_the_cap_is_unchanged(square: np.ndarray) -> None:
+    assert ops.transform(square, scale_factor=2.0, max_side=1600).shape[:2] == (200, 200)
+    assert ops.transform(square, scale_factor=0.5, max_side=1600).shape[:2] == (50, 50)
+
+
+def test_clamped_to_the_current_size_skips_the_resize_call(
+    monkeypatch: pytest.MonkeyPatch, square: np.ndarray
+) -> None:
+    """When the image is already at max_side, an upscale request clamps to a
+    no-op: effective == 1.0, so cv2.resize must not be called at all."""
+    calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        ops.cv2, "resize", lambda image, dsize, **kwargs: calls.append(dsize) or image
+    )
+    result = ops.transform(square, scale_factor=2.0, max_side=100)
+    assert result.shape[:2] == (100, 100)
+    assert calls == []
+
+
+def test_scaling_capped_on_a_non_square_image_rounds_the_shorter_side_once() -> None:
+    """The longer side lands exactly on max_side; the shorter side is the
+    single rounding of shorter * max_side / longer, aspect preserved."""
+    image = np.zeros((100, 300, 3), dtype=np.uint8)  # height=100, width=300
+    result = ops.transform(image, scale_factor=3.0, max_side=200)
+    height, width = result.shape[:2]
+    assert width == 200
+    assert height == round(100 * 200 / 300)
 
 
 def test_horizontal_flip_mirrors_columns() -> None:
