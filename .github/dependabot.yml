@@ -1,9 +1,8 @@
 version: 2
 updates:
-  # After any change to uv.lock (uv add, uv lock --upgrade, or a Dependabot update), run
-  # `uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt` and commit the
-  # result; CI fails when the two files disagree. Dependabot cannot run this step, so its pull
-  # requests need this one extra commit before they pass.
+  # requirements.txt is exported from uv.lock and CI fails when the two differ. On Dependabot's
+  # uv pull requests the "Dependabot requirements" workflow re-exports it and pushes one commit;
+  # approve the workflow runs on the pull request so CI checks that commit.
   - package-ecosystem: uv
     directory: /
     schedule:
