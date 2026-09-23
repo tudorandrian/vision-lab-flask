@@ -5,6 +5,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `scripts/smoke_load.py` prints its usage (exit code 2) when the URL or image argument is
+  missing or the image file does not exist, and supports `--help`; before, it stopped with a
+  Python traceback.
+
 ## [1.1.3] - 2026-09-23
 
 Patch release from a first-time-user run of 1.1.2: a quieter emotion mode, a fixed Docker Compose

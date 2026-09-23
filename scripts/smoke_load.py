@@ -2,15 +2,16 @@
 
 Usage: python scripts/smoke_load.py http://127.0.0.1:8000 samples/astronaut.jpg
 Exit code 0 on a clean run. Exit code 1 if any response is a 5xx other than the deliberate 503
-busy signal, or if no sequential upload succeeded at all. Exit code 2 if the target host is not
-local, in which case no request is made.
+busy signal, or if no sequential upload succeeded at all. Exit code 2 if the arguments are missing
+or the image file does not exist (a usage message is printed), or if the target host is not local,
+in which case no request is made.
 Standard library only, so it runs anywhere Python does.
 """
 
 from __future__ import annotations
 
+import argparse
 import statistics
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -60,8 +61,23 @@ def upload(base: str, image: bytes) -> tuple[int, float]:
     return status, time.perf_counter() - started
 
 
-def main() -> int:
-    base, image = sys.argv[1].rstrip("/"), Path(sys.argv[2]).read_bytes()
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Sequential and concurrent uploads against a running local server.",
+        epilog="example: python scripts/smoke_load.py http://127.0.0.1:8000 samples/astronaut.jpg",
+    )
+    parser.add_argument("url", help="base URL of the running server, on this machine only")
+    parser.add_argument("image", type=Path, help="image file to upload")
+    args = parser.parse_args(argv)
+    if not args.image.is_file():
+        parser.error(f"image file not found: {args.image}")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    base, image = args.url.rstrip("/"), args.image.read_bytes()
     if not is_local(base):
         print("refusing to load-test a host that is not local")
         return 2
