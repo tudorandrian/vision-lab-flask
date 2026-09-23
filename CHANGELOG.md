@@ -5,6 +5,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The vulnerability audit in CI retries when the PyPI vulnerability service fails (an HTTP 5xx or
+  a timeout), up to three attempts; a reported vulnerability still fails the check at once
+  (`scripts/pip_audit_retry.py`).
+
 ## [1.1.1] - 2026-09-23
 
 Maintenance release: dependency updates, dependency automation and supply-chain pinning. The
