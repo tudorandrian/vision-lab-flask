@@ -5,6 +5,11 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `.gitignore` lists only what the project itself creates; a personal tool folder is no
+  longer named there. Ignore such folders in your own clone with `.git/info/exclude`.
+
 ## [1.1.4] - 2026-09-23
 
 Patch release: the load smoke script explains its own usage. The application code and its
