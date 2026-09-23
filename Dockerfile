@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
-FROM python:3.13-slim-bookworm AS build
-COPY --from=ghcr.io/astral-sh/uv:0.12.15 /uv /bin/uv
+# Base images are pinned by digest as well as tag: the tag says which version, the digest
+# makes the build use exactly those bytes. Dependabot updates the tag and digest on FROM lines
+# only; it does not read COPY --from, so update the uv image (tag and digest) by hand, together
+# with UV_VERSION in the workflows.
+FROM python:3.13-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26 AS build
+COPY --from=ghcr.io/astral-sh/uv:0.12.15@sha256:62f8c047d0a0e9ece6b53fc63df902585a67a47a7f318ddec4a37db586edc8e3 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
@@ -8,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-ins
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \

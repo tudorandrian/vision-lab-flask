@@ -17,6 +17,9 @@ uses [Semantic Versioning](https://semver.org/).
   `mpmath<1.4`; such updates could only change `requirements.txt`, not `uv.lock`.
 - Every GitHub Action in the workflows is pinned to a full commit SHA, with its version as a
   comment, instead of a movable tag such as `@v7`; Dependabot keeps both up to date.
+- The Docker base image (`python:3.13-slim-bookworm`) and the uv image the build copies from are
+  pinned by digest as well as tag. Dependabot updates the base image; the uv image is updated by
+  hand with the workflows' `UV_VERSION`.
 - `docs/testing.md` records the first `Emotion smoke` run: it passed on 2026-09-23 against 1.1.0.
 
 ## [1.1.0] - 2026-09-23

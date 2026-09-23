@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep in sync with UV_VERSION in dependabot-requirements.yml: both must write the same
-  # requirements.txt.
+  # Keep in sync with UV_VERSION in dependabot-requirements.yml (both must write the same
+  # requirements.txt) and with the uv image in the Dockerfile.
   UV_VERSION: "0.12.15"
 
 jobs:
