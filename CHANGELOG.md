@@ -5,8 +5,15 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-23
+
+Maintenance release: dependency updates, dependency automation and supply-chain pinning. The
+application code is unchanged.
+
 ### Changed
 
+- Dependencies updated within their existing ranges: `ultralytics` 8.4.156 (`yolo` extra),
+  `filelock` 4.0.1 and `fsspec` 2026.9.0.
 - Dependabot no longer proposes Docker base images with Python 3.14 or later, which the project
   does not support yet (`requires-python` is `>=3.12,<3.14`).
 - A `Dependabot requirements` workflow re-exports `requirements.txt` from `uv.lock` on Dependabot's
@@ -133,7 +140,8 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 Coursework submission: a single-file Flask application with a Romanian interface. Kept as the
 tag `v0.1.0-coursework`.
 
-[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v0.1.0-coursework...v1.0.0
 [0.1.0-coursework]: https://github.com/tudorandrian/vision-lab-flask/tree/v0.1.0-coursework
