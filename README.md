@@ -2,7 +2,7 @@
 
 A small web application that applies classical image processing and pretrained deep-learning
 vision models to an uploaded image, and shows every result next to the numbers behind it.
-Status: version 1.1.2, beta, maintained as a portfolio project.
+Status: version 1.1.3, beta, maintained as a portfolio project.
 
 [![CI](https://github.com/tudorandrian/vision-lab-flask/actions/workflows/ci.yml/badge.svg)](https://github.com/tudorandrian/vision-lab-flask/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue.svg)](LICENSE)

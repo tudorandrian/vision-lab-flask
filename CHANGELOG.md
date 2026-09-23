@@ -5,6 +5,11 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-09-23
+
+Patch release from a first-time-user run of 1.1.2: a quieter emotion mode, a fixed Docker Compose
+project name and a corrected test figure in the README. Dependencies are unchanged.
+
 ### Fixed
 
 - With the `emotion` extra enabled, the server log no longer shows DeepFace's backend deprecation
@@ -164,7 +169,8 @@ Same scope as the coursework version, rebuilt as a maintainable application.
 Coursework submission: a single-file Flask application with a Romanian interface. Kept as the
 tag `v0.1.0-coursework`.
 
-[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/tudorandrian/vision-lab-flask/compare/v1.0.0...v1.1.0
