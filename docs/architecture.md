@@ -132,6 +132,16 @@ sets it to the configured weights directory before importing DeepFace, unless `D
 already set, so every downloaded weight lands under `VISION_LAB_DATA_DIR` like the other models,
 instead of the user's home directory.
 
+**Quiet DeepFace and TensorFlow start-up.** DeepFace prints a backend deprecation banner on every
+import. TensorFlow prints a oneDNN notice before it reads `TF_CPP_MIN_LOG_LEVEL`, so that
+variable cannot hide it, and it logs a `tf.losses` deprecation warning. None of them is
+actionable for a user of this application. Before the import, `inference.py` defaults
+`DEEPFACE_LOG_LEVEL` to 40 (errors only), `TF_ENABLE_ONEDNN_OPTS` to 0 and the `tensorflow`
+logger to ERROR. Disabling oneDNN was measured on the sample image: the emotion scores were
+identical, and a warm call took 0.107 s against 0.110 s with oneDNN enabled. Each setting is a
+default only: a value already set in the environment, or a level already set on the logger, is
+kept, so the full output can be switched back on for debugging.
+
 **OpenCV below 5.** OpenCV 5 removed `cv2.CascadeClassifier`, which DeepFace still uses for its
 default face detector. The constraint is recorded in `pyproject.toml` and in the Dependabot
 configuration, and can be lifted once the emotion extra is verified on OpenCV 5.

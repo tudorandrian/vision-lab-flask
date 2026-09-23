@@ -8,6 +8,7 @@ is loaded once per process, on first use, and then reused.
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 import threading
 from collections.abc import Callable, Sequence
@@ -190,6 +191,16 @@ class DeepFaceEmotionAnalyzer:
         # DeepFace reads DEEPFACE_HOME at import time and stores weights under
         # <home>/.deepface/weights, so this must be set before the import below.
         os.environ.setdefault("DEEPFACE_HOME", str(weights_dir))
+        # DeepFace prints a backend deprecation banner on every import, and
+        # TensorFlow prints a oneDNN notice before its log level is read, so
+        # TF_CPP_MIN_LOG_LEVEL cannot hide it; only disabling oneDNN does. For
+        # this small model that changes neither the scores nor the speed.
+        # Defaults only: a user can turn all of it back on.
+        os.environ.setdefault("DEEPFACE_LOG_LEVEL", str(logging.ERROR))
+        os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+        tensorflow_logger = logging.getLogger("tensorflow")
+        if tensorflow_logger.level == logging.NOTSET:
+            tensorflow_logger.setLevel(logging.ERROR)
 
     def analyze(self, image: Image) -> list[FaceEmotion]:
         from deepface import DeepFace
