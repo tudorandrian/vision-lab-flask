@@ -2,7 +2,7 @@
 
 A small web application that applies classical image processing and pretrained deep-learning
 vision models to an uploaded image, and shows every result next to the numbers behind it.
-Status: version 1.0.0, beta, maintained as a portfolio project.
+Status: version 1.1.0, beta, maintained as a portfolio project.
 
 [![CI](https://github.com/tudorandrian/vision-lab-flask/actions/workflows/ci.yml/badge.svg)](https://github.com/tudorandrian/vision-lab-flask/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue.svg)](LICENSE)
@@ -180,7 +180,8 @@ Timisoara: one Flask file, written in a few days. That version is kept under the
 [`v0.1.0-coursework`](https://github.com/tudorandrian/vision-lab-flask/tree/v0.1.0-coursework).
 Version 1.0.0 (2026) keeps the scope and rebuilds the engineering: a tested package, validated
 input, private storage, correct algorithms, reproducible dependencies and continuous integration.
-[CHANGELOG.md](CHANGELOG.md) lists what changed and why.
+Version 1.1.0 (2026) is a hardening release of the same scope. [CHANGELOG.md](CHANGELOG.md) lists
+what changed in each version and why.
 
 ## Licences and credits
 

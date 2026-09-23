@@ -1,6 +1,6 @@
 [project]
 name = "vision-lab-flask"
-version = "1.0.0"
+version = "1.1.0"
 description = "Classical image processing and pretrained deep-learning vision models behind a small Flask web interface."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
