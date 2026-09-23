@@ -1,3 +1,7 @@
+# A fixed project name, so the container, volume and network names start with
+# vision-lab-flask whatever the folder the repository was cloned into.
+name: vision-lab-flask
+
 services:
   app:
     build: .

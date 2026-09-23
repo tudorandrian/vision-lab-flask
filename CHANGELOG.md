@@ -14,6 +14,9 @@ uses [Semantic Versioning](https://semver.org/).
   `tensorflow` logger level brings the output back.
 - The README gave an out-of-date test count (159 tests at 99.12 %); it now matches
   `docs/testing.md`.
+- `compose.yaml` sets the project name, so Docker names the container, volume and network
+  `vision-lab-flask...` whatever the folder the repository was cloned into; before, a clone in a
+  folder with another name created differently named resources.
 
 ## [1.1.2] - 2026-09-23
 
