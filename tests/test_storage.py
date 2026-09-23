@@ -15,9 +15,19 @@ import numpy as np
 import pytest
 from PIL import Image as PilImage
 
-from vision_lab.storage import JobStore, UploadError, decode_upload
+from vision_lab.storage import ORPHAN_GRACE_SECONDS, JobStore, UploadError, decode_upload
 
 LIMITS = {"max_pixels": 1_000_000, "max_side": 320}
+
+
+def expired_job(store: JobStore, root: Path, age_seconds: float = 7200) -> str:
+    """A completed job whose result.json (the retention clock) is age_seconds old."""
+    job_id = store.create()
+    store.save_result(job_id, {"ok": True})
+    stamp = time.time() - age_seconds
+    os.utime(root / "jobs" / job_id / "result.json", (stamp, stamp))
+    os.utime(root / "jobs" / job_id, (stamp, stamp))
+    return job_id
 
 
 def encoded(
@@ -218,9 +228,7 @@ def test_unknown_job_is_a_key_error(store: JobStore) -> None:
 
 
 def test_purge_removes_only_expired_jobs(store: JobStore, tmp_path: Path) -> None:
-    old, fresh = store.create(), store.create()
-    two_hours_ago = time.time() - 7200
-    os.utime(tmp_path / "jobs" / old, (two_hours_ago, two_hours_ago))
+    old, fresh = expired_job(store, tmp_path), store.create()
     (tmp_path / "jobs" / "keep-me").mkdir()
     assert store.purge_expired() == 1
     assert not (tmp_path / "jobs" / old).exists()
@@ -246,10 +254,7 @@ def test_purge_skips_a_directory_rmtree_cannot_remove(
     WinError 145, or ENOTEMPTY on Linux) must be swallowed for that one entry, logged once,
     and never counted as removed; a second, unrelated expired job is still removed and counted.
     """
-    stuck, fine = store.create(), store.create()
-    two_hours_ago = time.time() - 7200
-    os.utime(tmp_path / "jobs" / stuck, (two_hours_ago, two_hours_ago))
-    os.utime(tmp_path / "jobs" / fine, (two_hours_ago, two_hours_ago))
+    stuck, fine = expired_job(store, tmp_path), expired_job(store, tmp_path)
 
     real_rmtree = shutil.rmtree
 
@@ -274,10 +279,7 @@ def test_purge_skips_a_directory_rmtree_cannot_remove(
 def test_purge_skips_a_directory_rmtree_denies_permission(
     store: JobStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    denied, fine = store.create(), store.create()
-    two_hours_ago = time.time() - 7200
-    os.utime(tmp_path / "jobs" / denied, (two_hours_ago, two_hours_ago))
-    os.utime(tmp_path / "jobs" / fine, (two_hours_ago, two_hours_ago))
+    denied, fine = expired_job(store, tmp_path), expired_job(store, tmp_path)
 
     real_rmtree = shutil.rmtree
 
@@ -298,10 +300,7 @@ def test_purge_skips_a_directory_rmtree_denies_permission(
 def test_purge_skips_a_directory_whose_stat_raises_os_error(
     store: JobStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    broken, fine = store.create(), store.create()
-    two_hours_ago = time.time() - 7200
-    os.utime(tmp_path / "jobs" / broken, (two_hours_ago, two_hours_ago))
-    os.utime(tmp_path / "jobs" / fine, (two_hours_ago, two_hours_ago))
+    broken, fine = expired_job(store, tmp_path), expired_job(store, tmp_path)
 
     real_stat = Path.stat
 
@@ -329,10 +328,8 @@ def test_purge_expired_is_safe_under_concurrent_requests(store: JobStore, tmp_pa
     """
     job_count = 40
     thread_count = 8
-    two_hours_ago = time.time() - 7200
     for _ in range(job_count):
-        job_id = store.create()
-        os.utime(tmp_path / "jobs" / job_id, (two_hours_ago, two_hours_ago))
+        expired_job(store, tmp_path)
 
     barrier = threading.Barrier(thread_count)
     results: list[int] = []
@@ -359,3 +356,32 @@ def test_purge_expired_is_safe_under_concurrent_requests(store: JobStore, tmp_pa
     assert errors == []
     assert not list((tmp_path / "jobs").iterdir())
     assert sum(results) == job_count
+
+
+def test_a_job_still_being_written_is_not_purged(store: JobStore, tmp_path: Path) -> None:
+    """A directory without result.json is a job in progress (or one whose
+    process died). The TTL clock starts when result.json is written, so a slow
+    model download must not lose the job to a concurrent read's purge."""
+    in_progress = store.create()
+    two_hours_ago = time.time() - 7200
+    os.utime(tmp_path / "jobs" / in_progress, (two_hours_ago, two_hours_ago))
+    assert store.purge_expired() == 0
+    assert (tmp_path / "jobs" / in_progress).exists()
+
+
+def test_an_orphaned_directory_is_purged_after_the_grace(store: JobStore, tmp_path: Path) -> None:
+    orphan = store.create()
+    long_ago = time.time() - 3600 - ORPHAN_GRACE_SECONDS - 60  # the store fixture's TTL is 60 min
+    os.utime(tmp_path / "jobs" / orphan, (long_ago, long_ago))
+    assert store.purge_expired() == 1
+    assert not (tmp_path / "jobs" / orphan).exists()
+
+
+def test_an_orphaned_directory_just_short_of_the_grace_survives(
+    store: JobStore, tmp_path: Path
+) -> None:
+    orphan = store.create()
+    almost = time.time() - 3600 - ORPHAN_GRACE_SECONDS + 60  # the store fixture's TTL is 60 min
+    os.utime(tmp_path / "jobs" / orphan, (almost, almost))
+    assert store.purge_expired() == 0
+    assert (tmp_path / "jobs" / orphan).exists()

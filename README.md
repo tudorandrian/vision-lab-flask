@@ -106,7 +106,7 @@ Environment variables, all optional.
 | `VISION_LAB_MAX_UPLOAD_MB` | `8` | larger uploads get HTTP 413 |
 | `VISION_LAB_MAX_PIXELS` | `25000000` | larger images are rejected before decoding |
 | `VISION_LAB_MAX_SIDE` | `1600` | images are reduced to this long side before processing |
-| `VISION_LAB_JOB_TTL_MINUTES` | `60` | results older than this are deleted |
+| `VISION_LAB_JOB_TTL_MINUTES` | `60` | results are deleted this long after their processing finished |
 | `VISION_LAB_MAX_CONCURRENT_JOBS` | `1` | inferences running at the same time |
 | `VISION_LAB_QUEUE_SECONDS` | `15` | how long an upload waits for a free slot before HTTP 503 (0 to 3600) |
 | `VISION_LAB_ENABLE_EMOTION` | `0` | enables the `emotion` extra when it is installed |

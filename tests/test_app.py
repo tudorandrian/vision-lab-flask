@@ -468,7 +468,8 @@ def test_expired_jobs_are_purged_on_the_next_upload(
     old = submit(client)
     job_dir = settings.jobs_dir / job_id_of(old)
     past = time.time() - 2 * 3600
-    os.utime(job_dir, (past, past))
+    for target in (job_dir, job_dir / "result.json"):
+        os.utime(target, (past, past))
     submit(client)
     assert client.get(old.headers["Location"]).status_code == 404
     assert not job_dir.exists()
@@ -481,7 +482,8 @@ def test_expired_results_are_404_without_a_new_upload(
     location = old.headers["Location"]
     job_dir = settings.jobs_dir / job_id_of(old)
     past = time.time() - 2 * 3600
-    os.utime(job_dir, (past, past))
+    for target in (job_dir, job_dir / "result.json"):
+        os.utime(target, (past, past))
     assert client.get(location).status_code == 404
     assert client.get(f"{location}/files/original.jpg").status_code == 404
     assert not job_dir.exists()
@@ -498,8 +500,10 @@ def test_a_stuck_expired_job_directory_does_not_break_other_requests(
     """
     old = submit(client)
     stuck_id = job_id_of(old)
+    job_dir = settings.jobs_dir / stuck_id
     past = time.time() - 2 * 3600
-    os.utime(settings.jobs_dir / stuck_id, (past, past))
+    for target in (job_dir, job_dir / "result.json"):
+        os.utime(target, (past, past))
 
     real_rmtree = shutil.rmtree
 
@@ -514,6 +518,40 @@ def test_a_stuck_expired_job_directory_does_not_break_other_requests(
     assert fresh.status_code == 303
     assert client.get(fresh.headers["Location"]).status_code == 200
     assert client.get("/").status_code == 200
+
+
+def test_a_result_read_during_a_slow_job_does_not_purge_that_job(settings: Settings) -> None:
+    """With a 1-minute TTL and a cold model download, the job directory can be
+    older than the TTL before result.json exists; a concurrent GET's purge
+    must leave it alone, and the upload must still finish with 303."""
+    settings = replace(settings, job_ttl_minutes=1)
+    entered, release = threading.Event(), threading.Event()
+
+    class Stalled(FakeRegistry):
+        def detector(self, name: str) -> FakeDetector:
+            entered.set()
+            release.wait(timeout=10)
+            return super().detector(name)
+
+    flask_app = create_app(settings, Stalled(settings.weights_dir))
+    flask_app.config["TESTING"] = True
+    outcome: list[int] = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(submit(flask_app.test_client()).status_code)
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=10)
+        (job_dir,) = [entry for entry in settings.jobs_dir.iterdir() if entry.is_dir()]
+        past = time.time() - 600  # the directory looks ten minutes old, past the 1-minute TTL
+        os.utime(job_dir, (past, past))
+        assert flask_app.test_client().get(f"/jobs/{job_dir.name}").status_code == 404
+        assert job_dir.exists(), "a read while the job is running must not delete it"
+    finally:
+        release.set()
+        worker.join(timeout=10)
+    assert outcome == [303]
+    assert flask_app.test_client().get(f"/jobs/{job_dir.name}").status_code == 200
 
 
 def test_the_500_log_redacts_the_job_id_but_keeps_the_route_readable(

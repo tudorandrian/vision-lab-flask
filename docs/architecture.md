@@ -74,8 +74,10 @@ source, since the upstream link cannot do that for them.
 and let the query string choose the file to process. A job now runs once, writes `result.json`,
 and a GET only reads it. Expired jobs are purged once the inference slot for a new upload has been
 acquired (so an upload refused with 503 does not purge) and again on every request for a result or
-one of its files. A lock keeps a purge's listing and removals atomic against a concurrent purge in
-the same process.
+one of its files. The clock starts when `result.json` is written, so a job still being processed
+(its directory exists, its result does not) is never purged by a concurrent read; a directory that
+never receives a result, because the process died, is removed a day after the TTL. A lock keeps a
+purge's listing and removals atomic against a concurrent purge in the same process.
 
 **No JavaScript.** The interface is a form and a result page. Leaving scripts out allows
 `script-src 'none'`, removes a class of bugs, and keeps the pages usable everywhere.
