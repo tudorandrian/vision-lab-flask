@@ -72,17 +72,20 @@ built image measures 2.08 GB. Stop with Ctrl+C, or `docker compose down` from an
 
 ### C. With plain pip
 
-Requires Python 3.12 or 3.13 (`pyproject.toml` sets `requires-python`).
+Requires Python 3.12 or 3.13 (`pyproject.toml` sets `requires-python`). `requirements.txt` is
+exported from `uv.lock`, so this route installs the same versions as uv; the CPU-only PyTorch
+wheels are pinned by name, so pip cannot pick a CUDA build from PyPI instead.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install . --extra-index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install --no-deps .
 .venv/bin/vision-lab
 ```
 
-On Windows the two commands are `.venv\Scripts\pip` and `.venv\Scripts\vision-lab`, and the first
-command is `python` instead of `python3`.
-This route resolves dependencies afresh instead of using `uv.lock`.
+On Windows the commands use `.venv\Scripts\pip` and `.venv\Scripts\vision-lab`, and `python`
+instead of `python3`. The optional extras are not in `requirements.txt`; install them with
+`pip install '.[yolo]'` or `'.[emotion]'` afterwards if you need them.
 
 ### Optional extras
 
