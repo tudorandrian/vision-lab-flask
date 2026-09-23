@@ -117,7 +117,9 @@ at the image's own size rather than the published 520 px transform; see
 - The pretrained models are used as published. Their accuracy and bias are not evaluated here; on
   the sample image DeepLabV3 labels part of the helmet as `motorbike`, and the page shows that
   honestly.
-- The `emotion` extra is covered by a fake in the web tests only. It needs TensorFlow, which is too
-  large for the CI matrix; verify it by hand after changing `DeepFaceEmotionAnalyzer`.
+- The `emotion` extra is covered by a fake in the web tests; the real DeepFace import and its
+  no-face path run in the separate `Emotion smoke` workflow (monthly and on demand), not in the
+  required checks, because TensorFlow is too large for the matrix. There is no face fixture with
+  consent in the repository, so a detected face is still verified by hand.
 - There is no rate limiting per client. The queue bounds the work the server accepts, not who
   sends it; put a reverse proxy in front before exposing the application.

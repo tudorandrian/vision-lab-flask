@@ -88,6 +88,20 @@ def test_yolo_detector_disables_autoinstall_and_unsafe_pickle_load(
     assert ultra_utils.SAFE_LOAD is True
 
 
+@pytest.mark.models
+def test_deepface_imports_and_reports_no_face_on_a_blank_image(tmp_path: Path) -> None:
+    """The emotion extra is covered by a fake elsewhere. This runs the real
+    DeepFace once: it proves the import still works and that a frame with no
+    face yields an empty list (enforce_detection=False reports the whole frame
+    with face_confidence 0, which the analyzer must drop). No face fixture is
+    used: the repository has no image with consent for that."""
+    pytest.importorskip("deepface")
+    from vision_lab.inference import DeepFaceEmotionAnalyzer
+
+    blank = np.full((240, 320, 3), 128, dtype=np.uint8)
+    assert DeepFaceEmotionAnalyzer(tmp_path).analyze(blank) == []
+
+
 def test_environment_cannot_re_enable_autoinstall_or_unsafe_pickle_loading() -> None:
     """These must be forced unconditionally at import time of vision_lab.inference,
     not merely defaulted: a careless or hostile environment that presets

@@ -1,0 +1,29 @@
+name: Emotion smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 1 * *"   # monthly: the extra is too large for the CI matrix
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emotion-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.15"
+
+jobs:
+  emotion:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --extra emotion
+      # -W default: third-party TensorFlow/Keras DeprecationWarnings must not fail the ini "error" filter
+      - run: uv run pytest -m models -k deepface --no-cov -W default
