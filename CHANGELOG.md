@@ -11,7 +11,10 @@ uses [Semantic Versioning](https://semver.org/).
   does not support yet (`requires-python` is `>=3.12,<3.14`).
 - A `Dependabot requirements` workflow re-exports `requirements.txt` from `uv.lock` on Dependabot's
   uv pull requests and pushes the result, so they no longer need a manual commit; a maintainer
-  approves the workflow runs on that commit.
+  approves the workflow runs on that commit. The commit is marked `[dependabot skip]`, so
+  Dependabot keeps rebasing the pull request.
+- Dependabot ignores `mpmath` 1.4 and later while `sympy` (required by `torch`) requires
+  `mpmath<1.4`; such updates could only change `requirements.txt`, not `uv.lock`.
 - `docs/testing.md` records the first `Emotion smoke` run: it passed on 2026-09-23 against 1.1.0.
 
 ## [1.1.0] - 2026-09-23
