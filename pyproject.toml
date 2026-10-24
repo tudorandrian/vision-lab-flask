@@ -22,7 +22,7 @@ dependencies = [
     # OpenCV 5 removed cv2.CascadeClassifier, which DeepFace's default face
     # detector still calls. Stay on 4.x until the emotion extra is verified on 5.x.
     "opencv-python>=4.10,<5",
-    "pillow>=11.3,<13",
+    "pillow>=11.3,<14",
     "torch>=2.6,<3",
     "torchvision>=0.21,<1",
     "waitress>=3.0.2,<4",
